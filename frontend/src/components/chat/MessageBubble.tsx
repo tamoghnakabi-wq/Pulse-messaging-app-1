@@ -32,7 +32,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useChatStore } from '../../store/chatStore';
 import { chatService } from '../../services/chat.service';
 import { MessageMenuItems } from '@/features/chat/components/message/MessageMenuItems';
-import { E2E_PREFIX } from '../../services/e2e';
+import { decryptMediaAttachment, E2E_PREFIX, isE2EMediaMeta } from '../../services/e2e';
+import { E2EMediaAttachment, isE2EAttachment } from './E2EMediaAttachment';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -89,6 +90,10 @@ function MessageBubbleInner({
   // Select actions only — never subscribe to full store (prevents N-bubble re-renders)
   const setReplyTo = useChatStore((s) => s.setReplyTo);
   const setEditingMessage = useChatStore((s) => s.setEditingMessage);
+  // Conversation crypto context for E2E media decrypt
+  const conversation = useChatStore((s) =>
+    s.conversations.find((c) => c.id === message.conversation)
+  );
   const [menu, setMenu] = useState(false);
   const [showReact, setShowReact] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
@@ -456,6 +461,7 @@ function MessageBubbleInner({
   const openViewOncePhoto = async () => {
     if (viewOnceLoading || !viewOnceCanOpen) return;
     setViewOnceLoading(true);
+    let e2eObjectUrl: string | null = null;
     try {
       const res = await chatService.openViewOnce(message.id);
       // Server may return alreadyOpened (idempotent) without media
@@ -476,8 +482,35 @@ function MessageBubbleInner({
         toast.error('Could not open photo');
         return;
       }
+
+      // E2E view-once: decrypt ciphertext on device before lightbox
+      const att0 = res.message.attachments?.[0] || message.attachments?.[0];
+      const e2eMeta = att0?.e2eMeta || '';
+      let displayUrl = mediaUrl(url) || url;
+      if (att0 && (att0.isE2E || isE2EMediaMeta(e2eMeta)) && conversation && userId) {
+        const fetchUrl = mediaUrl(url) || url;
+        const buf = await fetch(fetchUrl, { credentials: 'include' }).then((r) => {
+          if (!r.ok) throw new Error('fetch failed');
+          return r.arrayBuffer();
+        });
+        const dec = await decryptMediaAttachment(conversation, userId, buf, e2eMeta);
+        if (!dec) {
+          markViewOnceOpenedLocally(res.locked || res.message);
+          toast.error('Could not decrypt photo');
+          return;
+        }
+        // Authenticity: only show as view-once photo if decrypted mime is image
+        if (!dec.mimeType.startsWith('image/')) {
+          markViewOnceOpenedLocally(res.locked || res.message);
+          toast.error('Encrypted attachment is not a photo');
+          return;
+        }
+        e2eObjectUrl = URL.createObjectURL(dec.blob);
+        displayUrl = e2eObjectUrl;
+      }
+
       setLightbox({
-        url: mediaUrl(url) || url,
+        url: displayUrl,
         viewOnce: true,
         title: 'View once',
       });
@@ -490,6 +523,7 @@ function MessageBubbleInner({
           : [...viewOnceViewedBy, myId],
       });
     } catch (err: unknown) {
+      if (e2eObjectUrl) URL.revokeObjectURL(e2eObjectUrl);
       const status =
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { status?: number } }).response?.status
@@ -697,11 +731,25 @@ function MessageBubbleInner({
           {/* Attachments (skip raw images for recipient view-once — use placeholder above) */}
           {!(message.viewOnce && !isMine) &&
             message.attachments?.map((att, i) => {
+            // E2E: decrypt on device only — server has ciphertext
+            if (isE2EAttachment(att)) {
+              return (
+                <E2EMediaAttachment
+                  key={att.id || i}
+                  attachment={att}
+                  conversation={conversation}
+                  myId={userId || ''}
+                  isMine={isMine}
+                  messageType={message.type}
+                  onOpenImage={(url, name) => openNormalPhoto(url, name || att.originalName)}
+                />
+              );
+            }
             const src = mediaUrl(att.url) || att.url;
             if (!src && att.mimeType?.startsWith('image/')) {
               return null;
             }
-            if (att.mimeType.startsWith('image/')) {
+            if (att.mimeType?.startsWith('image/')) {
               return (
                 <button
                   key={i}
@@ -721,7 +769,7 @@ function MessageBubbleInner({
                 </button>
               );
             }
-            if (att.mimeType.startsWith('video/')) {
+            if (att.mimeType?.startsWith('video/')) {
               return (
                 <div
                   key={i}
@@ -737,7 +785,7 @@ function MessageBubbleInner({
                 </div>
               );
             }
-            if (att.mimeType.startsWith('audio/') || message.type === 'voice') {
+            if (att.mimeType?.startsWith('audio/') || message.type === 'voice') {
               return (
                 <div
                   key={i}

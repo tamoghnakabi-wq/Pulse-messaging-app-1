@@ -253,7 +253,7 @@ userSchema.methods.toPublicJSON = function () {
   let coverPhoto = this.coverPhoto || '';
   try {
     // Lazy require to avoid circular import at model load time
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     const { signUploadPath } = require('../utils/mediaSign') as {
       signUploadPath: (p: string) => string;
     };

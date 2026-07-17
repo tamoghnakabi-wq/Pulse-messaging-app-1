@@ -11,6 +11,15 @@ export interface Attachment {
   duration?: number;
   width?: number;
   height?: number;
+  /**
+   * Ciphertext attachment — server stores application/octet-stream only.
+   * Real mime/name live inside e2eMeta (client decrypts).
+   */
+  isE2E?: boolean;
+  /** Opaque media crypto envelope (e2e-media:2:…); never parse server-side */
+  e2eMeta?: string;
+  /** Client-declared UI class when mime is opaque (image|video|audio|document|voice) */
+  mediaClass?: string;
 }
 
 export interface Reaction {

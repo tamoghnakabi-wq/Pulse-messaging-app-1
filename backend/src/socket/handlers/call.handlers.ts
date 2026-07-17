@@ -531,7 +531,7 @@ export function registerCallHandlers(io: Server, socket: AuthedSocket): void {
           }
         }
 
-        let dataB64 =
+        const dataB64 =
           typeof payload?.dataB64 === 'string' && payload.dataB64.length > 0
             ? payload.dataB64
             : undefined;

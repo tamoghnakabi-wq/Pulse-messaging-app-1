@@ -6,9 +6,55 @@ const { io } = require('socket.io-client');
 const fs = require('fs');
 const path = require('path');
 
-const API = process.env.API_URL || 'http://127.0.0.1:5050';
+const API = process.env.API_URL || 'http://127.0.0.1:5050';/** Must pass password policy (not on common list). Override with SMOKE_PASSWORD. */
+const SMOKE_PASSWORD = process.env.SMOKE_PASSWORD || 'PulseCi_Test9x';
+const LEGACY_PASSWORD = 'Password1';
 const results = [];
 let failed = 0;
+
+async function loginUser(emailOrUsername) {
+  for (const password of [SMOKE_PASSWORD, LEGACY_PASSWORD]) {
+    try {
+      return await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ emailOrUsername, password }),
+      });
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error(`login failed for ${emailOrUsername} (tried smoke + legacy passwords)`);
+}
+
+/** API often wraps entities: { conversation }, { message }, { user } */
+function unwrap(data, key) {
+  if (!data || typeof data !== 'object') return data;
+  if (key && data[key] != null) return data[key];
+  return data;
+}
+
+function asConversation(data) {
+  const c = unwrap(data, 'conversation');
+  if (!c || typeof c !== 'object') return null;
+  const id = c.id || c._id;
+  if (!id) return null;
+  return { ...c, id: String(id) };
+}
+
+function asMessage(data) {
+  const m = unwrap(data, 'message');
+  if (!m || typeof m !== 'object') return null;
+  const id = m.id || m._id;
+  if (!id) return null;
+  return { ...m, id: String(id) };
+}
+
+function participantMatches(p, userId, username) {
+  const u = p?.user || p;
+  const id = String(u?.id || u?._id || u || '');
+  const uname = u?.username;
+  return id === String(userId) || uname === username;
+}
 
 function ok(name, detail = '') {
   results.push({ name, pass: true, detail });
@@ -96,10 +142,7 @@ async function main() {
   console.log('\n2. Auth');
   let alice, bob;
   try {
-    alice = await api('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ emailOrUsername: 'alice', password: 'Password1' }),
-    });
+    alice = await loginUser('alice');
     if (!alice.accessToken || !alice.user?.id) throw new Error('missing token/user');
     ok('login alice', alice.user.username);
   } catch (e) {
@@ -107,10 +150,7 @@ async function main() {
     process.exit(1);
   }
   try {
-    bob = await api('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ emailOrUsername: 'bob', password: 'Password1' }),
-    });
+    bob = await loginUser('bob');
     ok('login bob', bob.user.username);
   } catch (e) {
     fail('login bob', e);
@@ -197,43 +237,50 @@ async function main() {
   let convsA = [];
   let direct = null;
   try {
-    convsA = await api('/conversations?filter=all', { headers: authA });
-    if (!Array.isArray(convsA)) convsA = convsA.conversations || [];
+    const listData = await api('/conversations?filter=all', { headers: authA });
+    convsA = Array.isArray(listData)
+      ? listData
+      : listData.conversations || listData.items || [];
     ok('list conversations', `n=${convsA.length}`);
-    direct = convsA.find(
-      (c) =>
-        c.type === 'direct' &&
-        (c.participants || []).some(
-          (p) => (p.user?.id || p.user || p) === bob.user.id || p.user?.username === 'bob'
+    direct =
+      asConversation(
+        convsA.find(
+          (c) =>
+            c.type === 'direct' &&
+            (c.participants || []).some((p) =>
+              participantMatches(p, bob.user.id, bob.user.username)
+            )
         )
-    );
+      ) || null;
   } catch (e) {
     fail('list conversations', e);
   }
 
-  // Ensure direct conversation exists
-  if (!direct) {
+  // Ensure direct conversation exists (API returns { conversation })
+  if (!direct?.id) {
     try {
-      direct = await api('/conversations/direct', {
+      const created = await api('/conversations/direct', {
         method: 'POST',
         headers: authA,
         body: JSON.stringify({ userId: bob.user.id }),
       });
+      direct = asConversation(created);
+      if (!direct?.id) {
+        throw new Error(
+          `create direct returned no conversation.id — keys: ${Object.keys(created || {}).join(',')}`
+        );
+      }
       ok('create/get direct conversation', direct.id);
     } catch (e) {
-      try {
-        direct = await api('/conversations', {
-          method: 'POST',
-          headers: authA,
-          body: JSON.stringify({ type: 'direct', participantIds: [bob.user.id] }),
-        });
-        ok('create direct conversation (alt)', direct.id);
-      } catch (e2) {
-        fail('create direct conversation', e2);
-      }
+      fail('create/get direct conversation', e);
     }
   } else {
     ok('existing direct with bob', direct.id);
+  }
+
+  // Hard require: message/call sections must not skip silently
+  if (!direct?.id) {
+    fail('direct conversation required', 'missing id after list/create — aborting chat tests');
   }
 
   let group = null;
@@ -246,17 +293,17 @@ async function main() {
         participantIds: [bob.user.id],
       }),
     });
-    group = g.conversation || g;
-    ok('create group', group.id || group._id);
-    group.id = group.id || group._id;
+    group = asConversation(g);
+    if (!group?.id) throw new Error('group response missing conversation.id');
+    ok('create group', group.id);
   } catch (e) {
     fail('create group', e);
   }
 
   if (direct?.id) {
     try {
-      const full = await api(`/conversations/${direct.id}`, { headers: authA });
-      ok('get conversation detail', full.id || direct.id);
+      const full = asConversation(await api(`/conversations/${direct.id}`, { headers: authA }));
+      ok('get conversation detail', full?.id || direct.id);
     } catch (e) {
       fail('get conversation detail', e);
     }
@@ -281,7 +328,10 @@ async function main() {
   // ── Messages ────────────────────────────────────────────
   console.log('\n5. Messages');
   let sent = null;
-  if (direct?.id) {
+  if (!direct?.id) {
+    fail('send text message', 'skipped — no direct conversation id');
+    fail('list messages', 'skipped — no direct conversation id');
+  } else {
     try {
       // App uses multipart FormData (multer on the route) — match real client
       const form = new FormData();
@@ -292,7 +342,12 @@ async function main() {
         headers: authA,
         body: form,
       });
-      sent = raw.message || raw;
+      sent = asMessage(raw);
+      if (!sent?.id) {
+        throw new Error(
+          `send returned no message.id — keys: ${Object.keys(raw || {}).join(',')}`
+        );
+      }
       ok('send text message', sent.id);
     } catch (e) {
       fail('send text message', e);
@@ -303,12 +358,19 @@ async function main() {
         headers: authA,
       });
       const msgs = Array.isArray(page) ? page : page.messages || page.data || [];
+      if (!msgs.length && !sent?.id) {
+        throw new Error('expected at least one message after send');
+      }
       ok('list messages', `n=${msgs.length}`);
     } catch (e) {
       fail('list messages', e);
     }
 
-    if (sent?.id) {
+    if (!sent?.id) {
+      fail('edit message', 'skipped — no sent message id');
+      fail('react to message', 'skipped — no sent message id');
+      fail('star message', 'skipped — no sent message id');
+    } else {
       try {
         await api(`/messages/${sent.id}`, {
           method: 'PATCH',
@@ -440,22 +502,28 @@ async function main() {
     fail('socket connect', e);
   }
 
-  if (sa && sb && direct?.id) {
-    try {
-      // Messages are sent via REST FormData; sockets deliver message:new
-      const got = once(sb, 'message:new', 8000);
-      const form = new FormData();
-      form.append('content', `socket-smoke ${Date.now()}`);
-      form.append('type', 'text');
-      await api(`/messages/conversation/${direct.id}`, {
-        method: 'POST',
-        headers: authA,
-        body: form,
-      });
-      const msg = await got;
-      ok('REST send → socket message:new', msg?.id || 'received');
-    } catch (e) {
-      fail('REST send → socket message:new', e);
+  if (sa && sb) {
+    if (!direct?.id) {
+      fail('REST send → socket message:new', 'skipped — no direct conversation id');
+    } else {
+      try {
+        // Messages are sent via REST FormData; sockets deliver message:new
+        const got = once(sb, 'message:new', 8000);
+        const form = new FormData();
+        form.append('content', `socket-smoke ${Date.now()}`);
+        form.append('type', 'text');
+        await api(`/messages/conversation/${direct.id}`, {
+          method: 'POST',
+          headers: authA,
+          body: form,
+        });
+        const msg = await got;
+        const mid = msg?.id || msg?._id || (msg?.message && (msg.message.id || msg.message._id));
+        if (!mid) throw new Error('message:new payload missing id');
+        ok('REST send → socket message:new', String(mid));
+      } catch (e) {
+        fail('REST send → socket message:new', e);
+      }
     }
 
     try {
@@ -469,48 +537,54 @@ async function main() {
   // ── Call signaling ──────────────────────────────────────
   console.log('\n10. Call signaling');
   if (sa && sb) {
-    try {
-      const incoming = once(sb, 'call:incoming', 6000);
-      const callId = `smoke_${Date.now()}`;
-      sa.emit('call:initiate', {
-        conversationId: direct?.id,
-        targetUserId: bob.user.id,
-        callType: 'audio',
-        callId,
-        preferRelay: true,
-        sdpOffer: {
-          type: 'offer',
-          sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Pulse\r\nt=0 0\r\n',
-        },
-      });
-      const payload = await incoming;
-      if (payload.callId !== callId && !payload.callId) throw new Error('no callId');
-      ok('call:initiate → call:incoming', payload.callId || callId);
+    if (!direct?.id) {
+      fail('call signaling 1:1', 'skipped — no direct conversation id');
+    } else {
+      try {
+        const incoming = once(sb, 'call:incoming', 6000);
+        const callId = `smoke_${Date.now()}`;
+        sa.emit('call:initiate', {
+          conversationId: direct.id,
+          targetUserId: bob.user.id,
+          callType: 'audio',
+          callId,
+          preferRelay: true,
+          sdpOffer: {
+            type: 'offer',
+            sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Pulse\r\nt=0 0\r\n',
+          },
+        });
+        const payload = await incoming;
+        if (!payload.callId) throw new Error('no callId on call:incoming');
+        ok('call:initiate → call:incoming', payload.callId);
 
-      const answered = once(sa, 'call:answer', 5000);
-      sb.emit('call:accept', {
-        targetUserId: alice.user.id,
-        callId: payload.callId || callId,
-        preferRelay: true,
-        sdpAnswer: {
-          type: 'answer',
-          sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Pulse\r\nt=0 0\r\n',
-        },
-      });
-      await answered;
-      ok('call:accept → call:answer');
+        const answered = once(sa, 'call:answer', 5000);
+        sb.emit('call:accept', {
+          targetUserId: alice.user.id,
+          callId: payload.callId,
+          preferRelay: true,
+          sdpAnswer: {
+            type: 'answer',
+            sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=Pulse\r\nt=0 0\r\n',
+          },
+        });
+        await answered;
+        ok('call:accept → call:answer');
 
-      sa.emit('call:end', {
-        targetUserId: bob.user.id,
-        callId: payload.callId || callId,
-      });
-      ok('call:end emit');
-    } catch (e) {
-      fail('call signaling 1:1', e);
+        sa.emit('call:end', {
+          targetUserId: bob.user.id,
+          callId: payload.callId,
+        });
+        ok('call:end emit');
+      } catch (e) {
+        fail('call signaling 1:1', e);
+      }
     }
 
     // Group call if group exists
-    if (group?.id) {
+    if (!group?.id) {
+      fail('group call signaling', 'skipped — no group id');
+    } else {
       try {
         const gin = once(sb, 'call:group:incoming', 6000);
         const gcallId = `gsmoke_${Date.now()}`;
@@ -524,7 +598,6 @@ async function main() {
         ok('call:group:start → incoming', gp.callId || gcallId);
 
         sb.emit('call:group:accept', { callId: gp.callId || gcallId });
-        // host may get roster/peer-joined
         await new Promise((r) => setTimeout(r, 400));
         sa.emit('call:group:leave', { callId: gp.callId || gcallId });
         sb.emit('call:group:leave', { callId: gp.callId || gcallId });

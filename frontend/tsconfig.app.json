@@ -21,7 +21,8 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@shared/e2e-media-crypto": ["../shared/e2e-media-crypto.mjs"]
     }
   },
   "include": ["src"]

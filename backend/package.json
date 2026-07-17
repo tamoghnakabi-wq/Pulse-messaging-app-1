@@ -7,7 +7,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,js,json}\""
   },
   "dependencies": {
@@ -34,6 +35,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.7.5",
     "@types/cookie-parser": "^1.4.8",
@@ -47,11 +49,10 @@
     "@types/nodemailer": "^6.4.17",
     "@types/uuid": "^10.0.0",
     "@types/validator": "^13.12.2",
-    "@typescript-eslint/eslint-plugin": "^8.26.1",
-    "@typescript-eslint/parser": "^8.26.1",
     "eslint": "^9.22.0",
     "mongodb-memory-server": "^11.2.0",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.64.0"
   }
 }

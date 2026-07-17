@@ -4,39 +4,49 @@ Production-quality real-time messaging platform inspired by Discord, WhatsApp We
 
 **Stack:** React 19 · TypeScript · Vite · Tailwind CSS · Node.js · Express · Socket.IO · MongoDB · JWT · Framer Motion · Zustand · React Query · Docker
 
-**Architecture:** See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for folder layout, domain services, and contribution conventions.
+**Architecture:** [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) · **Ops:** [docs/OPS.md](./docs/OPS.md) · **Product focus:** [docs/PRODUCT.md](./docs/PRODUCT.md) · **Security:** [SECURITY_REPORT.md](./SECURITY_REPORT.md)
+
+### Quality gates
+
+```bash
+npm run ci          # typecheck + lint + production build
+npm run test:smoke  # API + socket smoke (API must be running)
+```
+
+CI runs on every push/PR to `main` (GitHub Actions): typecheck, lint, build, and Mongo-backed smoke.
 
 ---
 
 ## Features
 
 ### Authentication
-- Register / Login with JWT access + refresh tokens  
-- bcrypt password hashing  
-- Forgot / reset password (SMTP or dev console logs)  
-- Email verification  
-- Session management & logout everywhere  
+- Register / Login with JWT access + refresh tokens
+- bcrypt password hashing
+- Forgot / reset password (SMTP or dev console logs)
+- Email verification
+- Session management & logout everywhere
 
 ### Messaging
-- One-to-one & group chats  
-- Real-time delivery via Socket.IO  
-- Reactions, reply, forward, edit  
-- Delete for me / delete for everyone  
-- Pin & star messages  
-- Search, timestamps, infinite scroll  
-- Typing indicators, read & delivered receipts  
+- One-to-one & group chats
+- Real-time delivery via Socket.IO
+- Reactions, reply, forward, edit
+- Delete for me / delete for everyone
+- Pin & star messages
+- Search, timestamps, infinite scroll
+- Typing indicators, read & delivered receipts
 
 ### Media & voice
-- Images, video, audio, documents  
-- Drag & drop, previews, progress bars  
-- Voice notes  
-- WebRTC voice / video calls & screen sharing  
+- Images, video, audio, documents
+- Drag & drop, previews, progress bars
+- Voice notes
+- Voice / video / screen calls (Socket media relay; TURN planned — see docs/OPS.md)
+- End-to-end encrypted **text** (direct & group)
 
 ### UI
-- Apple-inspired glassmorphism  
-- Dark / light / system themes  
-- Responsive mobile + desktop layouts  
-- Skeleton loaders & Framer Motion transitions  
+- Apple-inspired glassmorphism
+- Dark / light / system themes
+- Responsive mobile + desktop layouts
+- Skeleton loaders & Framer Motion transitions
 
 ---
 
@@ -65,7 +75,7 @@ This installs workspaces and generates `backend/.env` + `frontend/.env`.
 docker compose up -d mongodb
 ```
 
-Default URI: `mongodb://localhost:27017/pulse`  
+Default URI: `mongodb://localhost:27017/pulse`
 (With compose auth: set `MONGODB_URI=mongodb://pulse:pulse_secret@localhost:27017/pulse?authSource=admin`)
 
 **Option B — MongoDB Atlas:**
@@ -181,12 +191,12 @@ pulse/
 ```
 
 ### MongoDB collections
-- **users** — profiles, settings, starred messages  
-- **sessions** — refresh token hashes, devices  
-- **conversations** — direct + group, participant prefs  
-- **messages** — content, attachments, reactions, receipts  
-- **attachments** — uploaded files metadata  
-- **notifications** — in-app notifications  
+- **users** — profiles, settings, starred messages
+- **sessions** — refresh token hashes, devices
+- **conversations** — direct + group, participant prefs
+- **messages** — content, attachments, reactions, receipts
+- **attachments** — uploaded files metadata
+- **notifications** — in-app notifications
 
 ---
 
@@ -240,12 +250,12 @@ docker compose up --build -d
 
 ## Security
 
-- Helmet, CORS, rate limiting  
-- Mongo sanitize, XSS clean, HPP  
-- HTTP-only cookies + Bearer JWT  
-- bcrypt (cost 12)  
-- Zod input validation  
-- Secure cookies when `COOKIE_SECURE=true`  
+- Helmet, CORS, rate limiting
+- Mongo sanitize, XSS clean, HPP
+- HTTP-only cookies + Bearer JWT
+- bcrypt (cost 12)
+- Zod input validation
+- Secure cookies when `COOKIE_SECURE=true`
 
 ---
 
@@ -264,13 +274,13 @@ docker compose up --build -d
 
 ## Troubleshooting
 
-**MongoDB connection failed**  
+**MongoDB connection failed**
 Start Docker Mongo or set a valid Atlas `MONGODB_URI`.
 
-**Socket.IO fails over the tunnel**  
+**Socket.IO fails over the tunnel**
 Use `npm run dev` so a single Cloudflare tunnel hits Vite (which proxies WebSockets). Do not open the API port alone unless `VITE_API_URL` points at that public origin.
 
-**Named Cloudflare tunnel**  
+**Named Cloudflare tunnel**
 Create a tunnel in Zero Trust → get a token, then:
 
 ```bash
@@ -279,7 +289,7 @@ export PULSE_PUBLIC_URL=https://pulse.yourdomain.com
 npm run dev
 ```
 
-**Email not sending**  
+**Email not sending**
 Without SMTP, verification/reset links are printed in the **backend console**.
 
 ---

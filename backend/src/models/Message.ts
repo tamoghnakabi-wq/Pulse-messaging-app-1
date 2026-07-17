@@ -18,6 +18,15 @@ export interface IAttachment {
   duration?: number;
   width?: number;
   height?: number;
+  /** Client-side E2E ciphertext — server only stores opaque blob */
+  isE2E?: boolean;
+  /** Opaque media key/meta envelope (never interpreted by server) */
+  e2eMeta?: string;
+  /**
+   * Client-declared content class for UI (image/video/audio/document/voice).
+   * Not verified server-side for E2E blobs (plaintext mime is client-only).
+   */
+  mediaClass?: string;
 }
 
 export interface IMessage extends Document {
@@ -68,6 +77,9 @@ const attachmentSchema = new Schema<IAttachment>(
     duration: { type: Number },
     width: { type: Number },
     height: { type: Number },
+    isE2E: { type: Boolean, default: false },
+    e2eMeta: { type: String, maxlength: 4096 },
+    mediaClass: { type: String, maxlength: 32 },
   },
   { _id: true }
 );

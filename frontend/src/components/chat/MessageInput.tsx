@@ -25,7 +25,7 @@ import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
 import { chatService } from '../../services/chat.service';
 import { getSocket } from '../../services/socket';
-import { encryptMessageContent } from '../../services/e2e';
+import { encryptMediaFiles, encryptMessageContent } from '../../services/e2e';
 import { getSender } from '../../utils/format';
 import toast from 'react-hot-toast';
 import { cn } from '../../utils/cn';
@@ -221,14 +221,24 @@ export function MessageInput({ conversationId }: Props) {
     const plainText = text.trim();
     const optimisticUrls = files.map((f) => URL.createObjectURL(f));
 
-    // Encrypt content before it ever leaves the device (text payloads)
+    // Encrypt text + media before anything leaves the device (fail-closed for E2E)
     const conv =
       useChatStore.getState().conversations.find((c) => c.id === conversationId) ||
       null;
+    if (!conv) {
+      toast.error('Conversation not loaded. Try again.');
+      return;
+    }
+
     let wireContent = plainText;
     let isE2E = false;
-    if (plainText && conv) {
-      try {
+    let toSend = [...files];
+    let e2eMetas: string[] | undefined;
+    let mediaTypes: string[] | undefined;
+    let activeConv = conv;
+
+    try {
+      if (plainText) {
         const enc = await encryptMessageContent(conv, user.id, plainText);
         if (enc.error) {
           toast.error(enc.error);
@@ -236,8 +246,8 @@ export function MessageInput({ conversationId }: Props) {
         }
         wireContent = enc.content;
         isE2E = enc.isE2E;
-        // Keep wraps + keys in the store so a reload can decrypt this send
         if (enc.conversation) {
+          activeConv = enc.conversation;
           useChatStore.getState().upsertConversation({
             id: enc.conversation.id,
             e2eWrappedKeys: enc.conversation.e2eWrappedKeys,
@@ -245,11 +255,59 @@ export function MessageInput({ conversationId }: Props) {
             participants: enc.conversation.participants,
           } as typeof enc.conversation);
         }
-      } catch {
-        toast.error('Encryption failed. Message was not sent.');
-        return;
       }
+
+      // Encrypt attachments — fail-closed when E2E is expected (no plaintext downgrade)
+      if (files.length) {
+        const mediaEnc = await encryptMediaFiles(activeConv, user.id, files);
+        if (!mediaEnc.ok) {
+          toast.error(mediaEnc.error);
+          return;
+        }
+        if (mediaEnc.conversation) {
+          activeConv = mediaEnc.conversation;
+          useChatStore.getState().upsertConversation({
+            id: mediaEnc.conversation.id,
+            e2eWrappedKeys: mediaEnc.conversation.e2eWrappedKeys,
+            e2eVersion: mediaEnc.conversation.e2eVersion,
+            participants: mediaEnc.conversation.participants,
+          } as typeof mediaEnc.conversation);
+        }
+        if (mediaEnc.isE2E) {
+          toSend = mediaEnc.files;
+          e2eMetas = mediaEnc.e2eMetas;
+          isE2E = true;
+          // mediaTypes are UI hints only — real mime is sealed in e2eMeta
+          mediaTypes = files.map((f) => {
+            if (f.type.startsWith('image/')) return 'image';
+            if (f.type.startsWith('video/')) return 'video';
+            if (f.type.startsWith('audio/')) {
+              return f.type.includes('webm') || f.type.includes('ogg') ? 'voice' : 'audio';
+            }
+            return 'document';
+          });
+        } else if (isE2E) {
+          // Text was E2E but media would be plaintext — refuse mixed (fail-closed)
+          toast.error(
+            'Could not encrypt attachments. Message was not sent in plaintext.'
+          );
+          return;
+        }
+      }
+    } catch {
+      toast.error('Encryption failed. Message was not sent.');
+      return;
     }
+
+    const msgType = files.length
+      ? files[0].type.startsWith('image/')
+        ? ('image' as const)
+        : files[0].type.startsWith('video/')
+          ? ('video' as const)
+          : files[0].type.startsWith('audio/')
+            ? ('voice' as const)
+            : ('document' as const)
+      : ('text' as const);
 
     const optimistic = {
       id: clientId,
@@ -261,13 +319,7 @@ export function MessageInput({ conversationId }: Props) {
         username: user.username,
         avatar: user.avatar,
       },
-      type: files.length
-        ? files[0].type.startsWith('image/')
-          ? ('image' as const)
-          : files[0].type.startsWith('audio/')
-            ? ('voice' as const)
-            : ('document' as const)
-        : ('text' as const),
+      type: msgType,
       // Local UI shows plaintext; wire may be ciphertext
       content: plainText,
       isE2E,
@@ -277,6 +329,8 @@ export function MessageInput({ conversationId }: Props) {
         mimeType: f.type,
         size: f.size,
         url: optimisticUrls[i],
+        // Local blob is plaintext; server attachment will be E2E
+        isE2E: false,
       })),
       reactions: [],
       viewOnce: viewOnce && imagesOnly,
@@ -289,7 +343,6 @@ export function MessageInput({ conversationId }: Props) {
     const store = useChatStore.getState();
     store.addMessage(conversationId, optimistic as never);
     setText('');
-    const toSend = [...files];
     const sendViewOnce = viewOnce && imagesOnly;
     setFiles([]);
     setViewOnce(false);
@@ -309,10 +362,12 @@ export function MessageInput({ conversationId }: Props) {
           files: toSend,
           viewOnce: sendViewOnce,
           isE2E,
+          e2eMetas,
+          mediaTypes,
         },
         (pct) => setUploadProgress(pct)
       );
-      // Keep plaintext in local store for the sender
+      // Keep plaintext text in local store; E2E media decrypts on display
       store.addMessage(conversationId, {
         ...msg,
         clientId,

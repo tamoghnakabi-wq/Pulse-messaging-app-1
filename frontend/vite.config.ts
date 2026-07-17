@@ -8,6 +8,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@shared/e2e-media-crypto': path.resolve(
+        __dirname,
+        '../shared/e2e-media-crypto.mjs'
+      ),
     },
   },
   server: {

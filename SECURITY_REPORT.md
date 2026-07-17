@@ -1,7 +1,7 @@
 # Pulse Security Hardening Report
 
-**Date:** 2026-07-13  
-**Scope:** Messaging application (Express + Socket.IO + MongoDB + React)  
+**Date:** 2026-07-13
+**Scope:** Messaging application (Express + Socket.IO + MongoDB + React)
 **Constraints honored:** No redesign, no removal of features, no migration/deletion of user data, 100% backward compatibility, **2FA optional only**.
 
 ---
@@ -20,12 +20,31 @@ Pulse was hardened across authentication, passwords, optional TOTP 2FA, API/web 
 
 Raised from ~85–86 after:
 
-- **Access tokens memory-only** (no `localStorage`); refresh in **sessionStorage** + migrate-away from LS  
-- **1:1 call media gate**: active/ringing call registry + block checks (blocks unsolicited media relay)  
-- **Group/direct presence**: no force-disconnect mid-call; media touches presence  
-- **Malware scan**: fail-closed by default in production when scanner is configured  
-- **CSP / nginx**: `upgrade-insecure-requests`, tighter referrer/COOP/CORP headers  
+- **Access tokens memory-only** (no `localStorage`); refresh in **sessionStorage** + migrate-away from LS
+- **1:1 call media gate**: active/ringing call registry + block checks (blocks unsolicited media relay)
+- **Group/direct presence**: no force-disconnect mid-call; media touches presence
+- **Malware scan**: fail-closed by default in production when scanner is configured
+- **CSP / nginx**: `upgrade-insecure-requests`, tighter referrer/COOP/CORP headers
 - **Call hangup** after block, group disconnect cleanup (prior pass)
+
+### E2E media (2026-07-17)
+
+True client-side encryption for chat attachments (images, video, audio, documents):
+
+- **Encrypt before upload** with per-file AES-256-GCM media keys; conversation key only wraps the media key
+- **Server stores ciphertext only** (`application/octet-stream` / PME2 envelope) + opaque `e2eMeta` — no plaintext mime/name/keys
+- **Chunked encryption** (256 KiB) for large files; AAD binds chunk index; SHA-256 integrity check on decrypt
+- **Multi-device**: media key unwrap uses the same conversation wraps as text E2E
+- **Compatibility**: legacy unencrypted attachments unchanged; v1 `e2e-media:1` decrypt still supported
+- **Forward blocked** for E2E messages (keys are conversation-bound)
+
+#### Fail-closed + authenticity (follow-up)
+
+- **No plaintext downgrade** when encryption is expected (wraps / peer keys / text already E2E): client refuses send; server rejects `isE2E` + plaintext files or missing `e2eMetas`
+- **Ciphertext hash (`ch`)** sealed in encrypted meta — rejects meta/ciphertext swap
+- **Sealed size / chunk counts** must match header on decrypt
+- **mediaClass** is UI hint only; view-once verifies decrypted mime is `image/*`
+- **CI**: `npm run test:e2e-media` (imports production `shared/e2e-media-crypto.mjs`); smoke job runs client→API→recipient integration
 
 ---
 
@@ -151,16 +170,27 @@ Raised from ~85–86 after:
 
 | Risk | Severity | Notes / mitigation |
 |------|----------|-------------------|
-| Access & refresh tokens in `localStorage` | Medium | XSS can steal; prefer pure httpOnly + BFF long-term |
-| E2E private keys in `localStorage` | Medium | Device-bound; clear on logout; multi-device full sync not shipped |
-| Media not fully E2E on wire | Medium | Text E2E production-ready; media helpers present, not default path |
+| Access token in JS memory (not `localStorage`) | Low–Medium | **Updated 2026-07-17:** access JWT is memory-only; refresh lives in **sessionStorage** (tab-scoped). XSS can still steal while the tab is open; long-term prefer httpOnly cookies + BFF |
+| Refresh token in `sessionStorage` | Low–Medium | Cleared when the browser tab closes; still readable to XSS during the session |
+| E2E private keys on device storage | Medium | Device-bound; cleared on logout context; multi-device full sync not shipped |
+| Media / call audio-video not fully E2E on wire | Medium | Text E2E production-ready; calls use authenticated server relay (PCM/JPEG) with **active-call gates** |
 | First contact may send plaintext until peer key exists | Low | By design for UX; fail-closed once keys expected |
-| Malware scan off by default | Medium | Set `MALWARE_SCAN_CMD` (+ optional `MALWARE_SCAN_FAIL_CLOSED`) in prod |
+| Malware scan optional until configured | Medium | Set `MALWARE_SCAN_CMD` in prod; **fail-closed by default** when scanner is configured in production |
 | Impossible travel is IP-heuristic only (no geo DB) | Low | Alerts only; no false lockouts |
-| CSP allows `unsafe-inline` on SPA (Vite/fonts) | Low | Tighten for static production deploy if feasible |
+| CSP allows `unsafe-inline` on SPA (Vite/fonts) | Low | Tighten for static production deploy if feasible; `upgrade-insecure-requests` enabled |
 | Group invite codes exist without public join abuse suite | Low | Invite not fully productized |
-| In-memory security events / 2FA challenges | Low | Lost on restart; fine for single-node; use Redis at scale |
+| In-memory security events / 2FA challenges / call registries | Low | Lost on restart; fine for single-node; use Redis at scale (see `docs/OPS.md`) |
 | No WebAuthn / hardware keys | Info | TOTP optional covers most users |
+
+### Token storage (current implementation)
+
+| Token | Storage | Lifetime intent |
+|-------|---------|-----------------|
+| Access JWT | **In-memory only** (`setAccessToken`) | Short-lived; recovered via refresh after reload |
+| Refresh JWT | **`sessionStorage`** (`pulse_refresh_token`) | Tab session; migrated out of `localStorage` on first read |
+| E2E identity keys | Device storage (per-user keys) | Required for decrypt after reload |
+
+Do **not** treat older audit language about “both tokens in localStorage” as current.
 
 ---
 
@@ -196,7 +226,7 @@ Raised from ~85–86 after:
 | Redis for multi-instance rate limits / 2FA challenges | Recommended at scale |
 | Automated dependency scanning | Recommended |
 
-**Production readiness score: 84/100** — ready for a careful production launch with HTTPS, secrets, and ops hygiene; raise to 90+ with malware scanner, Redis-backed limits, and reduced token storage in JS.
+**Production readiness score: 88/100** — ready for a careful production launch with HTTPS, secrets, and ops hygiene. Overall security score **~90/100**. Raise further with malware scanner always on, Redis-backed limits/call state, TURN for calls, and pure httpOnly session cookies.
 
 ---
 
@@ -208,9 +238,9 @@ Two-factor authentication is **fully optional**. Users who never enable it log i
 
 ## Verification performed
 
-- Backend `tsc --noEmit` — pass  
-- Frontend `tsc --noEmit` — pass  
-- No data migrations; schema fields are additive with safe defaults  
+- Backend `tsc --noEmit` — pass
+- Frontend `tsc --noEmit` — pass
+- No data migrations; schema fields are additive with safe defaults
 
 ---
 
@@ -218,7 +248,7 @@ Two-factor authentication is **fully optional**. Users who never enable it log i
 
 **Strengths:** Auth session model, refresh rotation/reuse, optional 2FA, lockout, privacy enforcement, signed media, E2E text fail-closed, headers, upload validation, logging redaction.
 
-**Deductions:** localStorage tokens/keys (−4), media E2E not default (−3), malware off by default (−3), heuristic-only travel detection (−2), SPA CSP looseness (−2).
+**Deductions:** E2E private keys on device storage (−3), refresh still in sessionStorage (XSS-readable while tab open) (−2), media/call E2E not default (−3), malware scan optional until configured (−2), heuristic-only travel detection (−2), SPA CSP looseness (−2).
 
 ---
 

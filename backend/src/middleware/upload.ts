@@ -14,7 +14,8 @@ const ensureDir = (dir: string) => {
 const storage = multer.diskStorage({
   destination: (_req, file, cb) => {
     let sub = 'misc';
-    if (file.mimetype.startsWith('image/')) sub = 'images';
+    if (file.mimetype === 'application/octet-stream') sub = 'documents';
+    else if (file.mimetype.startsWith('image/')) sub = 'images';
     else if (file.mimetype.startsWith('video/')) sub = 'videos';
     else if (file.mimetype.startsWith('audio/')) sub = 'audio';
     else sub = 'documents';
@@ -23,6 +24,11 @@ const storage = multer.diskStorage({
     cb(null, dest);
   },
   filename: (_req, file, cb) => {
+    // E2E: force .pme2 so path never leaks original extension
+    if (file.mimetype === 'application/octet-stream') {
+      cb(null, `${uuidv4()}.pme2`);
+      return;
+    }
     const rawExt = path.extname(file.originalname).toLowerCase() || '';
     const ext = /^(\.[a-z0-9]{1,10})$/.test(rawExt) ? rawExt : '';
     cb(null, `${uuidv4()}${ext}`);
@@ -53,6 +59,8 @@ const allowedMimes = new Set([
   'application/zip',
   'text/plain',
   'text/csv',
+  // Client-side E2E media ciphertext (PME2 envelope) — no plaintext mime on server
+  'application/octet-stream',
 ]);
 
 const dangerousExt = new Set([
@@ -78,6 +86,15 @@ function fileFilter(
     cb(new AppError(`File extension not allowed: ${ext}`, 400, 'INVALID_FILE_TYPE'));
     return;
   }
+  // E2E ciphertext uses .pme2 or no extension + octet-stream
+  if (file.mimetype === 'application/octet-stream') {
+    if (ext && ext !== '.pme2' && ext !== '.bin') {
+      cb(new AppError(`Encrypted attachment extension not allowed: ${ext}`, 400, 'INVALID_FILE_TYPE'));
+      return;
+    }
+    cb(null, true);
+    return;
+  }
   if (allowedMimes.has(file.mimetype)) {
     cb(null, true);
   } else {
@@ -96,7 +113,9 @@ export const upload = multer({
 
 export function fileUrl(filename: string, mimetype: string): string {
   let sub = 'misc';
-  if (mimetype.startsWith('image/')) sub = 'images';
+  // E2E ciphertext is opaque — store under documents (no type leak via path)
+  if (mimetype === 'application/octet-stream') sub = 'documents';
+  else if (mimetype.startsWith('image/')) sub = 'images';
   else if (mimetype.startsWith('video/')) sub = 'videos';
   else if (mimetype.startsWith('audio/')) sub = 'audio';
   else sub = 'documents';

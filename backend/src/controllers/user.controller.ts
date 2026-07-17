@@ -10,7 +10,7 @@ import { isUserOnline } from '../socket';
 function signMedia(path?: string): string {
   if (!path) return '';
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     const { signUploadPath } = require('../utils/mediaSign') as {
       signUploadPath: (p: string) => string;
     };

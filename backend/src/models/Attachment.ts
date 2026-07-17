@@ -12,6 +12,9 @@ export interface IAttachmentDoc extends Document {
   duration?: number;
   width?: number;
   height?: number;
+  isE2E?: boolean;
+  e2eMeta?: string;
+  mediaClass?: string;
   conversation?: Types.ObjectId;
   message?: Types.ObjectId;
   createdAt: Date;
@@ -30,6 +33,9 @@ const attachmentDocSchema = new Schema<IAttachmentDoc>(
     duration: { type: Number },
     width: { type: Number },
     height: { type: Number },
+    isE2E: { type: Boolean, default: false },
+    e2eMeta: { type: String, maxlength: 4096 },
+    mediaClass: { type: String, maxlength: 32 },
     conversation: { type: Schema.Types.ObjectId, ref: 'Conversation' },
     message: { type: Schema.Types.ObjectId, ref: 'Message' },
   },

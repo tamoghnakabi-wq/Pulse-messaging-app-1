@@ -29,7 +29,22 @@ export const uploadFiles = asyncHandler(async (req: AuthRequest, res: Response) 
     if (ok) safeConversation = conversationId;
   }
 
+  // Optional E2E media flags (parallel arrays) — server stores opaque meta only
+  let e2eMetas: string[] | undefined;
+  try {
+    const raw = req.body.e2eMetas;
+    if (typeof raw === 'string') {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) e2eMetas = parsed.filter((x) => typeof x === 'string').slice(0, 10);
+    } else if (Array.isArray(raw)) {
+      e2eMetas = raw.filter((x): x is string => typeof x === 'string').slice(0, 10);
+    }
+  } catch {
+    e2eMetas = undefined;
+  }
+
   const attachments = [];
+  let fileIndex = 0;
   for (const file of files) {
     if (!fileMatchesMime(file.path, file.mimetype)) {
       unlinkQuiet(file.path);
@@ -40,7 +55,15 @@ export const uploadFiles = asyncHandler(async (req: AuthRequest, res: Response) 
       );
     }
 
-    // Optional malware scan (MALWARE_SCAN_CMD)
+    const metaRaw =
+      e2eMetas && typeof e2eMetas[fileIndex] === 'string'
+        ? String(e2eMetas[fileIndex]).slice(0, 4096)
+        : '';
+    const isE2EFile =
+      file.mimetype === 'application/octet-stream' &&
+      metaRaw.startsWith('e2e-media:');
+
+    // Optional malware scan (MALWARE_SCAN_CMD) — E2E ciphertext is opaque; scan still OK
     const scan = await scanUploadedFile(file.path);
     if (!scan.clean) {
       unlinkQuiet(file.path);
@@ -52,8 +75,8 @@ export const uploadFiles = asyncHandler(async (req: AuthRequest, res: Response) 
       throw new AppError(scan.reason || 'File failed security scan', 400, 'MALWARE_BLOCKED');
     }
 
-    // Strip GPS/EXIF from images when practical
-    if (file.mimetype.startsWith('image/')) {
+    // Strip GPS/EXIF from plaintext images only — never touch E2E ciphertext
+    if (!isE2EFile && file.mimetype.startsWith('image/')) {
       stripImageMetadata(file.path, file.mimetype);
     }
 
@@ -61,11 +84,13 @@ export const uploadFiles = asyncHandler(async (req: AuthRequest, res: Response) 
     const doc = await Attachment.create({
       uploader: req.userId,
       filename: file.filename,
-      originalName: sanitizeFilename(file.originalname),
-      mimeType: file.mimetype,
+      originalName: isE2EFile ? 'encrypted.pme2' : sanitizeFilename(file.originalname),
+      mimeType: isE2EFile ? 'application/octet-stream' : file.mimetype,
       size: file.size,
       url,
       conversation: safeConversation,
+      isE2E: isE2EFile,
+      e2eMeta: isE2EFile ? metaRaw : undefined,
     });
     attachments.push({
       id: doc._id.toString(),
@@ -74,7 +99,10 @@ export const uploadFiles = asyncHandler(async (req: AuthRequest, res: Response) 
       mimeType: doc.mimeType,
       size: doc.size,
       url: signUploadPath(doc.url),
+      isE2E: !!doc.isE2E,
+      e2eMeta: doc.e2eMeta,
     });
+    fileIndex += 1;
   }
 
   res.status(201).json({ success: true, data: { attachments } });

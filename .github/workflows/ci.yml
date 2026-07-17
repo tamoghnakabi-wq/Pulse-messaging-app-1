@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Typecheck · Lint · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck backend
+        run: npm run typecheck -w backend
+
+      - name: Typecheck frontend
+        run: npx tsc -b --pretty false
+        working-directory: frontend
+
+      - name: Lint backend
+        run: npm run lint -w backend
+
+      - name: Lint frontend
+        run: npm run lint -w frontend
+
+      - name: Build backend
+        run: npm run build -w backend
+
+      - name: Build frontend
+        run: npm run build -w frontend
+
+      # Production E2E media crypto module (shared/e2e-media-crypto.mjs) — not a mirror
+      - name: E2E media crypto unit tests
+        run: npm run test:e2e-media
+
+  # Full API + socket smoke against MongoDB (integration).
+  # Skips gracefully if the job is disabled; required only when secrets/services ready.
+  smoke:
+    name: API smoke (MongoDB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: quality
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: development
+      PORT: 5050
+      MONGODB_URI: mongodb://127.0.0.1:27017/pulse_ci
+      JWT_ACCESS_SECRET: ci_access_secret_at_least_32_chars_long!!
+      JWT_REFRESH_SECRET: ci_refresh_secret_at_least_32_chars_long!
+      CLIENT_URL: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173
+      API_URL: http://127.0.0.1:5050
+      # Must satisfy password policy (not on common list — Password1 is rejected)
+      SMOKE_PASSWORD: PulseCi_Test9x
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build -w backend
+
+      - name: Seed smoke users + start API
+        run: |
+          set -euo pipefail
+          # Start API in background
+          npm run start -w backend > /tmp/pulse-api.log 2>&1 &
+          echo $! > /tmp/pulse-api.pid
+          # Wait for health
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:5050/api/health >/dev/null; then
+              echo "API healthy"
+              break
+            fi
+            sleep 0.5
+            if [[ $i -eq 40 ]]; then
+              echo "API failed to start"
+              cat /tmp/pulse-api.log || true
+              exit 1
+            fi
+          done
+
+      - name: Ensure alice/bob exist
+        run: node scripts/ci-seed-users.js
+
+      - name: Run full smoke test
+        run: node scripts/full-smoke-test.js
+        env:
+          API_URL: http://127.0.0.1:5050
+
+      # Alice encrypt → API stores ciphertext only → Bob decrypts
+      - name: E2E media client→API→recipient integration
+        run: npm run test:e2e-media-integration
+        env:
+          API_URL: http://127.0.0.1:5050
+          SMOKE_PASSWORD: PulseCi_Test9x
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [[ -f /tmp/pulse-api.pid ]]; then
+            kill "$(cat /tmp/pulse-api.pid)" 2>/dev/null || true
+          fi

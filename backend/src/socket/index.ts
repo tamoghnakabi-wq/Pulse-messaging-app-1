@@ -16,9 +16,6 @@ import {
   scheduleOffline,
   emitPresenceToContacts,
   startPresenceSweeper,
-  isUserOnline,
-  getOnlineUserIds,
-  resetPresenceOnBoot,
 } from './presence';
 import {
   getActiveCallForUser,

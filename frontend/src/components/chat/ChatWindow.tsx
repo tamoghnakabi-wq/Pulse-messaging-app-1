@@ -1004,8 +1004,9 @@ export function ChatWindow() {
               </svg>
             </div>
             <p className="text-[15px] font-semibold tracking-[-0.02em]">No messages yet</p>
-            <p className="mt-1.5 max-w-[14rem] text-sm leading-relaxed text-[var(--color-ink-secondary)]">
-              Say hello — your conversation starts here.
+            <p className="mt-1.5 max-w-[16rem] text-sm leading-relaxed text-[var(--color-ink-secondary)]">
+              Send a message to get started. Text is end-to-end encrypted when both of you have
+              keys set up.
             </p>
           </div>
         ) : (

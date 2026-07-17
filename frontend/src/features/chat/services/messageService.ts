@@ -25,6 +25,12 @@ export const messageService = {
     if (payload.mentions) form.append('mentions', JSON.stringify(payload.mentions));
     if (payload.viewOnce) form.append('viewOnce', 'true');
     if (payload.isE2E) form.append('isE2E', 'true');
+    if (payload.e2eMetas?.length) {
+      form.append('e2eMetas', JSON.stringify(payload.e2eMetas));
+    }
+    if (payload.mediaTypes?.length) {
+      form.append('mediaTypes', JSON.stringify(payload.mediaTypes));
+    }
     payload.files?.forEach((f) => form.append('files', f));
 
     const res = await api.post(`/messages/conversation/${conversationId}`, form, {

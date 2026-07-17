@@ -48,6 +48,44 @@ export const sendMessageSchema = z.object({
   viewOnce: boolish,
   /** Client-side end-to-end encrypted content */
   isE2E: boolish,
+  /**
+   * Opaque per-file E2E media envelopes (JSON array, parallel to uploaded files).
+   * Server stores as-is; never decrypts or validates crypto contents.
+   */
+  e2eMetas: z
+    .union([z.array(z.string().max(4096)), z.string().max(50000)])
+    .optional()
+    .transform((v) => {
+      if (!v) return undefined;
+      if (Array.isArray(v)) return v.slice(0, 10);
+      try {
+        const parsed = JSON.parse(v);
+        return Array.isArray(parsed)
+          ? parsed.filter((x): x is string => typeof x === 'string').slice(0, 10)
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+  /**
+   * Client-declared UI media classes parallel to files (image|video|audio|document|voice).
+   * Used only when files are E2E octet-stream so message type still works.
+   */
+  mediaTypes: z
+    .union([z.array(z.string().max(32)), z.string().max(2000)])
+    .optional()
+    .transform((v) => {
+      if (!v) return undefined;
+      if (Array.isArray(v)) return v.slice(0, 10);
+      try {
+        const parsed = JSON.parse(v);
+        return Array.isArray(parsed)
+          ? parsed.filter((x): x is string => typeof x === 'string').slice(0, 10)
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
 });
 
 export const editMessageSchema = z.object({

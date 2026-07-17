@@ -12,6 +12,16 @@
 import api from '@/shared/api/client';
 import { extractData } from '@/shared/api/extract';
 import type { Conversation, Message, User } from '@/shared/types';
+import {
+  encryptMediaWithConversationKey,
+  decryptMediaWithConversationKey,
+  isE2EMediaMeta as isE2EMediaMetaCore,
+  MEDIA_E2E_PREFIX_V1,
+  MEDIA_E2E_PREFIX_V2,
+} from '@shared/e2e-media-crypto';
+
+export { MEDIA_E2E_PREFIX_V1, MEDIA_E2E_PREFIX_V2 };
+export const isE2EMediaMeta = isE2EMediaMetaCore;
 
 const PRIV_KEY_LEGACY = 'pulse_e2e_priv_pkcs8';
 const PUB_KEY_LEGACY = 'pulse_e2e_pub_spki';
@@ -995,45 +1005,234 @@ export async function safetyNumber(myPubB64: string, theirPubB64: string): Promi
   return parts.join(' ');
 }
 
-/** Encrypt binary media with conversation AES key (opaque blob for upload). */
-export async function encryptMediaBlob(
+/**
+ * E2E media — client-only encryption for attachments.
+ * Core algorithm lives in shared/e2e-media-crypto.mjs (tested by CI).
+ *
+ * Fail-closed: when encryption is expected (wraps / peer keys), never upload
+ * plaintext media. Legacy peers without keys still allow plaintext (same as text).
+ */
+
+export interface MediaEncryptResult {
+  /** Ciphertext blob (application/octet-stream) — only this is uploaded */
+  blob: Blob;
+  /** Opaque meta for attachment.e2eMeta (keys + encrypted filename/mime/hash) */
+  e2eMeta: string;
+  /** Plaintext display hints (never sent to server as trusted fields) */
+  originalName: string;
+  mimeType: string;
+  plaintextSize: number;
+  /** SHA-256 hex of plaintext for integrity UI */
+  contentHash: string;
+}
+
+export interface MediaDecryptResult {
+  blob: Blob;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  contentHash: string;
+}
+
+/**
+ * Encrypt a file/blob for upload. Returns ciphertext + opaque e2eMeta.
+ * Returns null if conversation crypto is unavailable (caller must fail-closed when expected).
+ */
+export async function encryptMediaForUpload(
   conversation: Conversation,
   myId: string,
-  data: ArrayBuffer
-): Promise<{ blob: Blob; meta: string } | null> {
+  file: Blob,
+  opts?: { originalName?: string; mimeType?: string }
+): Promise<MediaEncryptResult | null> {
   try {
-    await ensureIdentityKeys();
-    const key = await conversationAesKey(conversation, myId);
-    if (!key) return null;
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
-    const meta = `e2e-media:1:${b64urlEncode(iv)}`;
-    return { blob: new Blob([ct], { type: 'application/octet-stream' }), meta };
+    if (!e2eSupported()) return null;
+    await ensureIdentityKeys(myId);
+    const convKey = await conversationAesKey(conversation, myId);
+    if (!convKey) return null;
+
+    const originalName =
+      (opts?.originalName || (file instanceof File ? file.name : '') || 'file').slice(0, 255);
+    const mimeType =
+      (opts?.mimeType || file.type || 'application/octet-stream').slice(0, 128);
+
+    const plaintextBuf = await file.arrayBuffer();
+    const enc = await encryptMediaWithConversationKey(convKey, plaintextBuf, {
+      originalName,
+      mimeType,
+    });
+    await rememberConversationKey(myId, conversation.id, convKey);
+
+    return {
+      blob: new Blob([enc.ciphertext], { type: 'application/octet-stream' }),
+      e2eMeta: enc.e2eMeta,
+      originalName: enc.originalName,
+      mimeType: enc.mimeType,
+      plaintextSize: enc.plaintextSize,
+      contentHash: enc.contentHash,
+    };
   } catch {
     return null;
   }
 }
 
+/** @deprecated Prefer encryptMediaForUpload — kept for callers expecting ArrayBuffer API */
+export async function encryptMediaBlob(
+  conversation: Conversation,
+  myId: string,
+  data: ArrayBuffer
+): Promise<{ blob: Blob; meta: string } | null> {
+  const r = await encryptMediaForUpload(conversation, myId, new Blob([data]));
+  if (!r) return null;
+  return { blob: r.blob, meta: r.e2eMeta };
+}
+
+/**
+ * Decrypt an E2E media ciphertext blob using conversation key + e2eMeta.
+ * Verifies plaintext + ciphertext integrity (shared core).
+ */
+export async function decryptMediaAttachment(
+  conversation: Conversation,
+  myId: string,
+  ciphertext: ArrayBuffer,
+  e2eMeta: string
+): Promise<MediaDecryptResult | null> {
+  try {
+    if (!e2eSupported() || !isE2EMediaMeta(e2eMeta)) return null;
+    await ensureIdentityKeys(myId);
+    const convKey = await conversationAesKey(conversation, myId);
+    if (!convKey) return null;
+
+    const dec = await decryptMediaWithConversationKey(convKey, ciphertext, e2eMeta);
+    if (!dec) return null;
+    return {
+      blob: new Blob([dec.plaintext], { type: dec.mimeType }),
+      originalName: dec.originalName,
+      mimeType: dec.mimeType,
+      size: dec.size,
+      contentHash: dec.contentHash,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** @deprecated Prefer decryptMediaAttachment */
 export async function decryptMediaBlob(
   conversation: Conversation,
   myId: string,
   data: ArrayBuffer,
   meta: string
 ): Promise<ArrayBuffer | null> {
-  try {
-    if (!meta.startsWith('e2e-media:1:')) return null;
-    const ivB64 = meta.slice('e2e-media:1:'.length);
-    await ensureIdentityKeys();
-    const key = await conversationAesKey(conversation, myId);
-    if (!key) return null;
-    return await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: toArrayBuffer(b64urlDecode(ivB64)) },
-      key,
-      data
-    );
-  } catch {
-    return null;
+  const r = await decryptMediaAttachment(conversation, myId, data, meta);
+  if (!r) return null;
+  return r.blob.arrayBuffer();
+}
+
+const FAIL_CLOSED_MEDIA =
+  'Could not encrypt attachments. Message was not sent in plaintext.';
+
+/**
+ * Encrypt multiple files for an E2E conversation.
+ *
+ * **Fail-closed:** when encryption is expected (conversation wraps, e2eVersion,
+ * or peer has identity keys), never returns plaintext files. Callers must not
+ * upload on `ok: false`.
+ *
+ * Legacy: only when encryption is NOT expected may plaintext media be returned.
+ */
+export async function encryptMediaFiles(
+  conversation: Conversation,
+  myId: string,
+  files: File[]
+): Promise<
+  | { ok: true; files: File[]; e2eMetas: string[]; isE2E: true; conversation?: Conversation }
+  | { ok: true; files: File[]; e2eMetas: string[]; isE2E: false; conversation?: Conversation }
+  | { ok: false; error: string }
+> {
+  if (!files.length) {
+    return { ok: true, files: [], e2eMetas: [], isE2E: false };
   }
+
+  const expected = await encryptionExpected(conversation, myId);
+
+  if (!e2eSupported()) {
+    if (expected) {
+      return {
+        ok: false,
+        error: 'This device cannot encrypt media. Use a modern browser — message not sent.',
+      };
+    }
+    return { ok: true, files, e2eMetas: [], isE2E: false };
+  }
+
+  // Ensure conversation crypto is ready
+  const updated = await ensureConversationE2E(conversation, myId);
+  const conv = updated || conversation;
+  // Re-check: after ensure, wraps may exist → encryption now expected
+  const expectedAfter =
+    expected ||
+    (conv.e2eVersion || 0) > 0 ||
+    (conv.e2eWrappedKeys?.length || 0) > 0 ||
+    (await encryptionExpected(conv, myId));
+
+  const key = await conversationAesKey(conv, myId);
+  if (!key) {
+    if (expectedAfter) {
+      return {
+        ok: false,
+        error:
+          'Could not encrypt attachments. Both users need keys — open Pulse on each device once. Message was not sent.',
+      };
+    }
+    // True legacy path: peer has never published keys
+    return { ok: true, files, e2eMetas: [], isE2E: false, conversation: conv };
+  }
+
+  // Direct: peer must have a wrap so they can decrypt (same as text)
+  if (conv.type === 'direct') {
+    const peerId = resolvePeerId(conv, myId);
+    const peerHasWrap = conv.e2eWrappedKeys?.some(
+      (k) => sameId(k.userId, peerId) && k.wrappedKey
+    );
+    if (peerId && !peerHasWrap) {
+      const again = await ensureConversationE2E(conv, myId);
+      const c2 = again || conv;
+      const ok = c2.e2eWrappedKeys?.some(
+        (k) => sameId(k.userId, peerId) && k.wrappedKey
+      );
+      if (!ok) {
+        return {
+          ok: false,
+          error:
+            'Could not set up encryption for the other person. Ask them to open Pulse once, then try again.',
+        };
+      }
+    }
+  }
+
+  const outFiles: File[] = [];
+  const e2eMetas: string[] = [];
+
+  for (const f of files) {
+    const enc = await encryptMediaForUpload(conv, myId, f, {
+      originalName: f.name,
+      mimeType: f.type || 'application/octet-stream',
+    });
+    if (!enc || !isE2EMediaMeta(enc.e2eMeta)) {
+      return { ok: false, error: FAIL_CLOSED_MEDIA };
+    }
+    // Upload as opaque .pme2 — server must not infer real type from extension
+    const safeName = `encrypted-${e2eMetas.length + 1}.pme2`;
+    outFiles.push(
+      new File([enc.blob], safeName, {
+        type: 'application/octet-stream',
+        lastModified: Date.now(),
+      })
+    );
+    e2eMetas.push(enc.e2eMeta);
+  }
+
+  return { ok: true, files: outFiles, e2eMetas, isE2E: true, conversation: conv };
 }
 
 async function encryptionExpected(

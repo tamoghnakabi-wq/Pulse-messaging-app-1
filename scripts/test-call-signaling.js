@@ -38,14 +38,24 @@ function connect(token) {
 async function main() {
   console.log('API', API);
 
-  const a = await api('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ emailOrUsername: 'alice', password: 'Password1' }),
-  });
-  const b = await api('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ emailOrUsername: 'bob', password: 'Password1' }),
-  });
+  const smokePass = process.env.SMOKE_PASSWORD || 'PulseCi_Test9x';
+  const passwords = [smokePass, 'Password1'];
+  async function login(user) {
+    let last;
+    for (const password of passwords) {
+      try {
+        return await api('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ emailOrUsername: user, password }),
+        });
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last || new Error(`login failed for ${user}`);
+  }
+  const a = await login('alice');
+  const b = await login('bob');
 
   console.log('alice', a.user.id, 'bob', b.user.id);
 

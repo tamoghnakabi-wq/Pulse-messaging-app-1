@@ -92,8 +92,8 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
     }
   }
 
-  let { content, type, replyTo, mentions, attachmentIds, clientId, viewOnce, isE2E } =
-    req.body;
+  let { content, replyTo, mentions, attachmentIds, e2eMetas, mediaTypes } = req.body;
+  const { type, clientId, viewOnce, isE2E } = req.body;
 
   // E2E ciphertext is base64-expanded; allow more room than plaintext
   if (typeof content === 'string') content = content.slice(0, isE2E ? 20000 : 10000);
@@ -101,6 +101,19 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
   if (replyTo === '' || !isObjectIdString(replyTo)) replyTo = undefined;
   if (!Array.isArray(mentions)) mentions = undefined;
   if (!Array.isArray(attachmentIds)) attachmentIds = undefined;
+  // Opaque E2E media envelopes — store only, never interpret
+  if (!Array.isArray(e2eMetas)) e2eMetas = undefined;
+  if (!Array.isArray(mediaTypes)) mediaTypes = undefined;
+
+  const allowedMediaClass = new Set(['image', 'video', 'audio', 'document', 'voice']);
+  const normalizeMediaClass = (raw: unknown): string | undefined => {
+    const s = String(raw || '').toLowerCase().trim();
+    if (allowedMediaClass.has(s)) return s;
+    if (s.startsWith('image/')) return 'image';
+    if (s.startsWith('video/')) return 'video';
+    if (s.startsWith('audio/')) return s.includes('webm') || s.includes('ogg') ? 'voice' : 'audio';
+    return undefined;
+  };
 
   let attachments: Array<Record<string, unknown>> = [];
 
@@ -120,12 +133,70 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
       duration: d.duration,
       width: d.width,
       height: d.height,
+      isE2E: !!d.isE2E,
+      e2eMeta: d.e2eMeta,
+      mediaClass: d.mediaClass,
     }));
   }
 
   if (req.files && Array.isArray(req.files) && req.files.length) {
     const { fileMatchesMime, unlinkQuiet } = await import('../utils/fileMagic');
-    for (const file of req.files as Express.Multer.File[]) {
+    const { isValidE2EMediaMeta } = await import('../utils/e2eMediaMeta');
+    const files = req.files as Express.Multer.File[];
+
+    // Fail-closed: when client claims isE2E, every file must be opaque ciphertext + meta.
+    // Never accept plaintext images/docs under an E2E message (downgrade / mixed mode).
+    if (e2eFlag) {
+      if (!Array.isArray(e2eMetas) || e2eMetas.length !== files.length) {
+        for (const f of files) unlinkQuiet(f.path);
+        throw new AppError(
+          'E2E messages require e2eMetas for every attachment',
+          400,
+          'E2E_MEDIA_META_REQUIRED'
+        );
+      }
+      for (let i = 0; i < files.length; i++) {
+        const metaRaw = String(e2eMetas[i] || '');
+        if (!isValidE2EMediaMeta(metaRaw)) {
+          for (const f of files) unlinkQuiet(f.path);
+          throw new AppError(
+            'Invalid E2E media envelope',
+            400,
+            'E2E_MEDIA_META_INVALID'
+          );
+        }
+        if (files[i].mimetype !== 'application/octet-stream') {
+          for (const f of files) unlinkQuiet(f.path);
+          throw new AppError(
+            'E2E attachments must be application/octet-stream ciphertext',
+            400,
+            'E2E_MEDIA_PLAINTEXT_REJECTED'
+          );
+        }
+      }
+    }
+
+    let fileIndex = 0;
+    for (const file of files) {
+      const metaRaw =
+        Array.isArray(e2eMetas) && typeof e2eMetas[fileIndex] === 'string'
+          ? String(e2eMetas[fileIndex]).slice(0, 4096)
+          : '';
+      const hasValidMeta = isValidE2EMediaMeta(metaRaw);
+      // E2E only when envelope is valid — never soft-promote plaintext with a flag
+      const isE2EFile =
+        hasValidMeta && file.mimetype === 'application/octet-stream';
+
+      // Reject claiming E2E meta on non-ciphertext
+      if (hasValidMeta && file.mimetype !== 'application/octet-stream') {
+        unlinkQuiet(file.path);
+        throw new AppError(
+          'E2E media meta requires opaque ciphertext upload',
+          400,
+          'E2E_MEDIA_PLAINTEXT_REJECTED'
+        );
+      }
+
       if (!fileMatchesMime(file.path, file.mimetype)) {
         unlinkQuiet(file.path);
         throw new AppError(
@@ -134,17 +205,29 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
           'INVALID_FILE_CONTENT'
         );
       }
-      // Relative URL — works across ngrok restarts
+
+      // E2E: never strip EXIF / never trust client original name for storage
+      // mediaClass is a non-authoritative UI hint only (real mime sealed in e2eMeta)
+      const mediaClass = isE2EFile
+        ? normalizeMediaClass(
+            Array.isArray(mediaTypes) ? mediaTypes[fileIndex] : undefined
+          )
+        : undefined;
       const url = toRelativeMediaPath(fileUrl(file.filename, file.mimetype));
-      const originalName = sanitizeFilename(file.originalname);
+      const originalName = isE2EFile
+        ? 'encrypted.pme2'
+        : sanitizeFilename(file.originalname);
       const att = await Attachment.create({
         uploader: req.userId,
         filename: file.filename,
         originalName,
-        mimeType: file.mimetype,
+        mimeType: isE2EFile ? 'application/octet-stream' : file.mimetype,
         size: file.size,
         url,
         conversation: conv._id,
+        isE2E: isE2EFile,
+        e2eMeta: isE2EFile ? metaRaw : undefined,
+        mediaClass,
       });
       attachments.push({
         filename: att.filename,
@@ -152,7 +235,11 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
         mimeType: att.mimeType,
         size: att.size,
         url: att.url,
+        isE2E: !!att.isE2E,
+        e2eMeta: att.e2eMeta,
+        mediaClass: att.mediaClass,
       });
+      fileIndex += 1;
     }
   }
 
@@ -161,20 +248,32 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
   }
 
   let msgType = type || 'text';
-  if (attachments.length && msgType === 'text') {
-    const mime = String(attachments[0].mimeType || '');
-    if (mime.startsWith('image/')) msgType = 'image';
-    else if (mime.startsWith('video/')) msgType = 'video';
-    else if (mime.startsWith('audio/'))
-      msgType = mime.includes('webm') || mime.includes('ogg') ? 'voice' : 'audio';
-    else msgType = 'document';
+  if (attachments.length && (msgType === 'text' || !msgType)) {
+    // Prefer client-declared type / mediaClass for E2E (mime is opaque)
+    const first = attachments[0];
+    const cls = String(first.mediaClass || '');
+    if (cls === 'image' || cls === 'video' || cls === 'audio' || cls === 'voice' || cls === 'document') {
+      msgType = cls;
+    } else {
+      const mime = String(first.mimeType || '');
+      if (mime.startsWith('image/')) msgType = 'image';
+      else if (mime.startsWith('video/')) msgType = 'video';
+      else if (mime.startsWith('audio/'))
+        msgType = mime.includes('webm') || mime.includes('ogg') ? 'voice' : 'audio';
+      else if (mime === 'application/octet-stream' && e2eFlag) msgType = 'document';
+      else msgType = 'document';
+    }
   }
 
   // View once: only pure image messages (no mixed video/docs)
+  // For E2E, trust mediaClass / declared type (ciphertext has no image magic)
   const wantViewOnce = viewOnce === true || viewOnce === 'true' || viewOnce === '1';
   const allImages =
     attachments.length > 0 &&
-    attachments.every((a) => String(a.mimeType || '').startsWith('image/'));
+    attachments.every((a) => {
+      if (String(a.mediaClass || '') === 'image') return true;
+      return String(a.mimeType || '').startsWith('image/');
+    });
   const isViewOnce = wantViewOnce && allImages && msgType === 'image';
   if (wantViewOnce && !isViewOnce) {
     throw new AppError('View once is only available for photos', 400, 'VIEW_ONCE_IMAGES_ONLY');
@@ -496,6 +595,9 @@ export const openViewOnce = asyncHandler(async (req: AuthRequest, res: Response)
         url: a.url,
         mimeType: a.mimeType,
         originalName: a.originalName,
+        isE2E: a.isE2E,
+        e2eMeta: a.e2eMeta,
+        mediaClass: a.mediaClass,
       })),
       locked,
     },
@@ -507,6 +609,16 @@ export const forwardMessage = asyncHandler(async (req: AuthRequest, res: Respons
   if (original.isDeleted) throw new AppError('Message not found', 404);
   if (original.viewOnce) {
     throw new AppError('View-once photos cannot be forwarded', 400, 'VIEW_ONCE_NO_FORWARD');
+  }
+
+  // E2E ciphertext + media keys are bound to the source conversation key;
+  // forwarding would leave recipients unable to decrypt.
+  if (original.isE2E || (original.attachments || []).some((a) => a.isE2E)) {
+    throw new AppError(
+      'End-to-end encrypted messages cannot be forwarded',
+      400,
+      'E2E_NO_FORWARD'
+    );
   }
 
   const { conversationIds } = req.body;

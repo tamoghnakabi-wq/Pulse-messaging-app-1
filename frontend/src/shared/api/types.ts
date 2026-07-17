@@ -42,8 +42,18 @@ export interface SendMessagePayload {
   files?: File[];
   /** View-once photo (image-only messages) */
   viewOnce?: boolean;
-  /** Content is E2E ciphertext */
+  /** Content / attachments are E2E ciphertext */
   isE2E?: boolean;
+  /**
+   * Parallel to files[] — opaque e2e-media meta per attachment.
+   * Server stores as-is; never interprets.
+   */
+  e2eMetas?: string[];
+  /**
+   * Client-declared message type when files are encrypted as octet-stream
+   * (e.g. image/video) so UI typing still works without plaintext mime on server.
+   */
+  mediaTypes?: string[];
 }
 
 export interface ConversationPrefsUpdate {

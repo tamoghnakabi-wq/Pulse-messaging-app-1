@@ -15,7 +15,7 @@ import { notFound, errorHandler } from './middleware/errorHandler';
 import { verifyUploadSignature } from './utils/mediaSign';
 
 // xss-clean has no types
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 const xss = require('xss-clean');
 
 const app = express();

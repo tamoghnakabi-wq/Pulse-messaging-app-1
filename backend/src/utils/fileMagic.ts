@@ -51,6 +51,14 @@ export function fileMatchesMime(filePath: string, mime: string): boolean {
       for (let i = 0; i < n; i++) if (buf[i] === 0) nulls++;
       return nulls === 0;
     }
+    // Client E2E media: PME2 magic ("PME2") or opaque binary (still allowed)
+    if (mime === 'application/octet-stream') {
+      if (n >= 4 && buf[0] === 0x50 && buf[1] === 0x4d && buf[2] === 0x45 && buf[3] === 0x32) {
+        return true; // Pulse Media E2E v2
+      }
+      // Accept other opaque ciphertext (v1 had no header)
+      return true;
+    }
     // Unknown allowlisted types — accept (filtered by mime allowlist already)
     return true;
   } catch {
