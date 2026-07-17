@@ -1,0 +1,28 @@
+{
+  "name": "pulse",
+  "version": "1.0.0",
+  "description": "Production-quality real-time messaging platform",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "node scripts/start-dev.js",
+    "dev:local": "concurrently -n backend,frontend -c blue,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "start": "npm run start -w backend",
+    "lint": "npm run lint -w backend && npm run lint -w frontend",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "setup": "npm install && node scripts/setup-env.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.5.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

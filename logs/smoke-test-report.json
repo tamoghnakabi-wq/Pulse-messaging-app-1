@@ -1,0 +1,188 @@
+{
+  "at": "2026-07-17T10:34:26.679Z",
+  "pass": 36,
+  "total": 36,
+  "failed": 0,
+  "results": [
+    {
+      "name": "GET /health",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "login alice",
+      "pass": true,
+      "detail": "alice"
+    },
+    {
+      "name": "login bob",
+      "pass": true,
+      "detail": "bob"
+    },
+    {
+      "name": "GET /auth/me",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "POST /auth/refresh",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "bad password rejected",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "search users",
+      "pass": true,
+      "detail": "hits=2"
+    },
+    {
+      "name": "get user profile",
+      "pass": true,
+      "detail": "6a5210ae96ea7e51321fd238"
+    },
+    {
+      "name": "update profile displayName (PATCH)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "list conversations",
+      "pass": true,
+      "detail": "n=3"
+    },
+    {
+      "name": "existing direct with bob",
+      "pass": true,
+      "detail": "6a5210b896ea7e51321fd255"
+    },
+    {
+      "name": "create group",
+      "pass": true,
+      "detail": "6a5a0532b496562b7feeedd4"
+    },
+    {
+      "name": "get conversation detail",
+      "pass": true,
+      "detail": "6a5210b896ea7e51321fd255"
+    },
+    {
+      "name": "conversation prefs pin/unpin",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "send text message",
+      "pass": true,
+      "detail": "6a5a0532b496562b7feeedf4"
+    },
+    {
+      "name": "list messages",
+      "pass": true,
+      "detail": "n=4"
+    },
+    {
+      "name": "edit message",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "react to message",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "star message",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "list notifications",
+      "pass": true,
+      "detail": "type=object"
+    },
+    {
+      "name": "call history",
+      "pass": true,
+      "detail": "n=0"
+    },
+    {
+      "name": "list sessions",
+      "pass": true,
+      "detail": "n=10"
+    },
+    {
+      "name": "upload image",
+      "pass": true,
+      "detail": "via /uploads"
+    },
+    {
+      "name": "update settings theme",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "2fa status",
+      "pass": true,
+      "detail": "{\"enabled\":false,\"emailVerified\":false,\"pendingSetup\":false}"
+    },
+    {
+      "name": "list blocked",
+      "pass": true,
+      "detail": "n=?"
+    },
+    {
+      "name": "get peer identity keys",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "socket connect alice+bob",
+      "pass": true,
+      "detail": "LyaVVZrUUNC648rEAAAD / gXsfwxz4bOaq5OgQAAAF"
+    },
+    {
+      "name": "REST send → socket message:new",
+      "pass": true,
+      "detail": "6a5a0532b496562b7feeee42"
+    },
+    {
+      "name": "presence:ping emit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "call:initiate → call:incoming",
+      "pass": true,
+      "detail": "smoke_1784284466261"
+    },
+    {
+      "name": "call:accept → call:answer",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "call:end emit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "call:group:start → incoming",
+      "pass": true,
+      "detail": "gsmoke_1784284466268"
+    },
+    {
+      "name": "group call accept + leave",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "unauth conversations blocked",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}
