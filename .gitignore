@@ -4,6 +4,7 @@ build/
 .env
 .env.local
 .env.*.local
+.dev.vars
 uploads/*
 !uploads/.gitkeep
 *.log
@@ -19,6 +20,7 @@ frontend/dist/
 backend/dist/
 ngrok.log
 .cache/
+.wrangler/
 
 logs/
 !.gitkeep

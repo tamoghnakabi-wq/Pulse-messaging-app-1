@@ -38,6 +38,16 @@ True client-side encryption for chat attachments (images, video, audio, document
 - **Compatibility**: legacy unencrypted attachments unchanged; v1 `e2e-media:1` decrypt still supported
 - **Forward blocked** for E2E messages (keys are conversation-bound)
 
+### Pulse Play (2026-07-17)
+
+Server-authoritative in-chat games (Tic-Tac-Toe, Connect Four, Trivia Duel, Emoji Guess):
+
+- Game state, turns, scores, and winners computed only on the server
+- Conversation membership + player join checks on every action
+- Idempotency (`clientActionId`) and version concurrency (`expectedVersion`)
+- Rate limits on create/join/action; curated trivia/emoji banks only
+- UI discloses that game traffic is **not E2E encrypted** (unlike chat messages)
+
 #### Fail-closed + authenticity (follow-up)
 
 - **No plaintext downgrade** when encryption is expected (wraps / peer keys / text already E2E): client refuses send; server rejects `isE2E` + plaintext files or missing `e2eMetas`

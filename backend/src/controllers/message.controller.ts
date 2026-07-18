@@ -55,7 +55,7 @@ export const getMessages = asyncHandler(async (req: AuthRequest, res: Response) 
     .sort({ createdAt: -1, _id: -1 })
     .limit(limit + 1)
     .select(
-      'conversation sender type content attachments replyTo forwardedFrom reactions mentions deliveredTo readBy isEdited editedAt isDeleted isPinned viewOnce viewOnceViewedBy clientId isE2E linkPreview createdAt updatedAt'
+      'conversation sender type content attachments replyTo forwardedFrom reactions mentions deliveredTo readBy isEdited editedAt isDeleted isPinned viewOnce viewOnceViewedBy clientId isE2E gameId linkPreview createdAt updatedAt'
     )
     .populate(messagePopulatePaths)
     .lean({ virtuals: true });

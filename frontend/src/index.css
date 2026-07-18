@@ -1108,6 +1108,36 @@ a:focus:not(:focus-visible) {
   color: var(--color-pulse-500);
   transform: translateY(-1px);
 }
+
+/* Composer left tools — keep Play / attach fully visible on desktop panes */
+.composer-tools {
+  max-width: none;
+}
+@media (min-width: 640px) {
+  .composer-tools .attach-btn {
+    /* Slightly tighter than default icon so 3–4 controls fit beside the field */
+    height: 2.25rem;
+    width: 2.25rem;
+    min-height: 2.25rem;
+    min-width: 2.25rem;
+  }
+}
+/* Header action strip: never clip the Games control */
+.chat-header-actions {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.chat-header-actions::-webkit-scrollbar {
+  display: none;
+}
+@media (min-width: 640px) {
+  .chat-header-actions .icon-btn {
+    height: 2.25rem;
+    width: 2.25rem;
+    min-height: 2.25rem;
+    min-width: 2.25rem;
+  }
+}
 .attach-preview {
   transition:
     transform 0.2s var(--ease-out-expo),

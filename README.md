@@ -4,7 +4,9 @@ Production-quality real-time messaging platform inspired by Discord, WhatsApp We
 
 **Stack:** React 19 · TypeScript · Vite · Tailwind CSS · Node.js · Express · Socket.IO · MongoDB · JWT · Framer Motion · Zustand · React Query · Docker
 
-**Architecture:** [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) · **Ops:** [docs/OPS.md](./docs/OPS.md) · **Product focus:** [docs/PRODUCT.md](./docs/PRODUCT.md) · **Security:** [SECURITY_REPORT.md](./SECURITY_REPORT.md)
+**Architecture:** [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) · **Ops:** [docs/OPS.md](./docs/OPS.md) · **Deploy 24/7:** [docs/DEPLOY.md](./docs/DEPLOY.md) · **Cloudflare:** [docs/CLOUDFLARE.md](./docs/CLOUDFLARE.md) · **Product focus:** [docs/PRODUCT.md](./docs/PRODUCT.md) · **Security:** [SECURITY_REPORT.md](./SECURITY_REPORT.md)
+
+> **Hosting note:** The API is **Node.js Express + Socket.IO**. It does **not** run as a pure Workers isolate, but you **can** deploy it with **`npx wrangler deploy`** via [Cloudflare Containers](./docs/CLOUDFLARE.md) (Docker image + thin Worker). Alternatives: Docker Compose, Fly, or a VPS (+ optional Tunnel) — see [DEPLOY.md](./docs/DEPLOY.md).
 
 ### Quality gates
 

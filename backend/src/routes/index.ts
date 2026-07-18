@@ -6,6 +6,7 @@ import messageRoutes from './message.routes';
 import uploadRoutes from './upload.routes';
 import notificationRoutes from './notification.routes';
 import callRoutes from './call.routes';
+import gameRoutes from './game.routes';
 
 const router = Router();
 
@@ -27,5 +28,6 @@ router.use('/messages', messageRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/calls', callRoutes);
+router.use('/games', gameRoutes);
 
 export default router;

@@ -17,7 +17,9 @@ import {
   Image as ImageIcon,
   Square,
   Timer,
+  Gamepad2,
 } from 'lucide-react';
+import { PlayPicker } from './play/PlayPicker';
 import type { EmojiClickData } from 'emoji-picker-react';
 import { Theme } from 'emoji-picker-react';
 import { Button } from '../ui/Button';
@@ -52,6 +54,7 @@ export function MessageInput({ conversationId }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [sending, setSending] = useState(false);
   const [viewOnce, setViewOnce] = useState(false);
+  const [showPlay, setShowPlay] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -531,8 +534,12 @@ export function MessageInput({ conversationId }: Props) {
         </div>
       )}
 
-      <form onSubmit={send} className="flex items-end gap-1 sm:gap-1.5">
-        <div className="relative flex shrink-0 items-center">
+      <form
+        onSubmit={send}
+        className="flex min-w-0 items-end gap-0.5 sm:gap-1"
+      >
+        {/* Tool cluster: compact on desktop so Play isn’t clipped by the pane edge */}
+        <div className="composer-tools relative flex shrink-0 items-center gap-0">
           <Button
             type="button"
             variant="ghost"
@@ -584,16 +591,28 @@ export function MessageInput({ conversationId }: Props) {
             variant="ghost"
             size="icon"
             className="attach-btn text-[var(--color-ink-secondary)]"
-            aria-label="Attach file"
-            onClick={() => fileRef.current?.click()}
+            aria-label="Play a game"
+            title="Pulse Play"
+            onClick={() => setShowPlay(true)}
           >
-            <Paperclip className="h-5 w-5" />
+            <Gamepad2 className="h-5 w-5" />
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="attach-btn hidden text-[var(--color-ink-secondary)] sm:inline-flex"
+            className="attach-btn text-[var(--color-ink-secondary)]"
+            aria-label="Attach file"
+            onClick={() => fileRef.current?.click()}
+          >
+            <Paperclip className="h-5 w-5" />
+          </Button>
+          {/* Media shortcut only when there is room (paperclip already accepts images) */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="attach-btn hidden text-[var(--color-ink-secondary)] xl:inline-flex"
             aria-label="Attach media"
             onClick={() => {
               if (fileRef.current) {
@@ -669,6 +688,12 @@ export function MessageInput({ conversationId }: Props) {
           </Button>
         )}
       </form>
+
+      <PlayPicker
+        conversationId={conversationId}
+        open={showPlay}
+        onClose={() => setShowPlay(false)}
+      />
     </div>
   );
 }

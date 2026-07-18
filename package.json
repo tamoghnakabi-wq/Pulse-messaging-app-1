@@ -5,7 +5,8 @@
   "private": true,
   "workspaces": [
     "backend",
-    "frontend"
+    "frontend",
+    "cloudflare"
   ],
   "scripts": {
     "dev": "node scripts/start-dev.js",
@@ -17,15 +18,22 @@
     "test:smoke": "node scripts/full-smoke-test.js",
     "test:e2e-media": "node scripts/test-e2e-media.mjs",
     "test:e2e-media-integration": "node scripts/e2e-media-integration-test.mjs",
-    "ci": "npm run typecheck && npm run lint && npm run build && npm run test:e2e-media",
+    "test:games": "npx tsx scripts/test-game-engines.ts",
+    "test:game-hardening": "npx tsx scripts/test-game-hardening.ts",
+    "test:pulse-play": "node scripts/pulse-play-smoke.mjs",
+    "ci": "npm run typecheck && npm run lint && npm run build && npm run test:e2e-media && npm run test:games && npm run test:game-hardening",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "setup": "npm install && node scripts/setup-env.js"
+    "setup": "npm install && node scripts/setup-env.js",
+    "cf:deploy": "npx wrangler deploy",
+    "cf:dev": "npx wrangler dev",
+    "cf:secret": "npx wrangler secret put"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
-    "prettier": "^3.5.3"
+    "prettier": "^3.5.3",
+    "wrangler": "^4.112.0"
   },
   "engines": {
     "node": ">=20.0.0"

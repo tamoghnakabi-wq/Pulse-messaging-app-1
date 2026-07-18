@@ -34,6 +34,7 @@ import { chatService } from '../../services/chat.service';
 import { MessageMenuItems } from '@/features/chat/components/message/MessageMenuItems';
 import { decryptMediaAttachment, E2E_PREFIX, isE2EMediaMeta } from '../../services/e2e';
 import { E2EMediaAttachment, isE2EAttachment } from './E2EMediaAttachment';
+import { GameCard } from './play/GameCard';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -277,6 +278,12 @@ function MessageBubbleInner({
   const sender = getSender(message);
   const isMine = sender.id === userId;
   const isSystem = message.type === 'system';
+  const isGame = message.type === 'game' || !!message.gameId;
+  const gameId =
+    message.gameId ||
+    (typeof (message as { gameId?: string }).gameId === 'string'
+      ? (message as { gameId?: string }).gameId
+      : undefined);
 
   // Normalize ids (ObjectId strings) so reload matches the opener
   const myId = userId ? String(userId) : '';
@@ -728,8 +735,12 @@ function MessageBubbleInner({
             )
           )}
 
+          {/* Pulse Play game card (server-authoritative) */}
+          {isGame && gameId && <GameCard gameId={String(gameId)} />}
+
           {/* Attachments (skip raw images for recipient view-once — use placeholder above) */}
           {!(message.viewOnce && !isMine) &&
+            !isGame &&
             message.attachments?.map((att, i) => {
             // E2E: decrypt on device only — server has ciphertext
             if (isE2EAttachment(att)) {

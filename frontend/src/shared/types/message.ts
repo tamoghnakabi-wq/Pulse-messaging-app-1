@@ -34,7 +34,8 @@ export type MessageType =
   | 'audio'
   | 'document'
   | 'voice'
-  | 'system';
+  | 'system'
+  | 'game';
 
 export interface LinkPreview {
   url: string;
@@ -70,6 +71,8 @@ export interface Message {
   viewOnceViewedBy?: string[];
   linkPreview?: LinkPreview;
   clientId?: string;
+  /** Pulse Play — references Game document (server-authoritative) */
+  gameId?: string;
   /** Content is client-side E2E ciphertext */
   isE2E?: boolean;
   createdAt: string;

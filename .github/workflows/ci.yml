@@ -52,6 +52,12 @@ jobs:
       - name: E2E media crypto unit tests
         run: npm run test:e2e-media
 
+      - name: Pulse Play game engine unit tests
+        run: npm run test:games
+
+      - name: Pulse Play hardening (scheduler + stats lease)
+        run: npm run test:game-hardening
+
   # Full API + socket smoke against MongoDB (integration).
   # Skips gracefully if the job is disabled; required only when secrets/services ready.
   smoke:
@@ -130,6 +136,12 @@ jobs:
       # Alice encrypt → API stores ciphertext only → Bob decrypts
       - name: E2E media client→API→recipient integration
         run: npm run test:e2e-media-integration
+        env:
+          API_URL: http://127.0.0.1:5050
+          SMOKE_PASSWORD: PulseCi_Test9x
+
+      - name: Pulse Play smoke (invite → play → complete)
+        run: npm run test:pulse-play
         env:
           API_URL: http://127.0.0.1:5050
           SMOKE_PASSWORD: PulseCi_Test9x

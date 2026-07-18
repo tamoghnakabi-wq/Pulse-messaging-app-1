@@ -1,0 +1,69 @@
+/**
+ * Pulse API — Cloudflare Containers deploy
+ *
+ * This is NOT a pure Workers isolate rewrite. Wrangler builds backend/Dockerfile,
+ * pushes the image to Cloudflare's registry, and a thin Worker routes all
+ * HTTP + WebSocket traffic into one sticky container (Express + Socket.IO).
+ *
+ * Prerequisites:
+ *   - Docker Desktop (or Docker daemon) running locally
+ *   - Cloudflare account on Workers Paid (Containers)
+ *   - MongoDB Atlas (or other external Mongo) URI
+ *
+ *   npx wrangler login
+ *   npx wrangler secret put JWT_ACCESS_SECRET
+ *   npx wrangler secret put JWT_REFRESH_SECRET
+ *   npx wrangler secret put MONGODB_URI
+ *   # Optional:
+ *   npx wrangler secret put MEDIA_SIGNING_SECRET
+ *
+ *   # Edit vars below for your public URLs, then:
+ *   npx wrangler deploy
+ *
+ * After first deploy, wait a few minutes for container provisioning.
+ * Health: https://<worker>.workers.dev/api/health
+ * Worker-only: https://<worker>.workers.dev/__worker_health
+ */
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pulse-api",
+  "main": "cloudflare/src/index.ts",
+  "compatibility_date": "2026-07-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  // Public non-secret config — update to match your frontend + workers.dev URL
+  // after first deploy (or set a custom domain).
+  "vars": {
+    "CLIENT_URL": "https://pulse.example.com",
+    "API_URL": "https://pulse-api.<YOUR_SUBDOMAIN>.workers.dev",
+    "CORS_ORIGINS": "https://pulse.example.com"
+  },
+  "containers": [
+    {
+      "class_name": "PulseApiContainer",
+      // Built from backend/Dockerfile (context = backend/)
+      "image": "./backend/Dockerfile",
+      // Keep 1 instance until Redis-backed multi-instance (see docs/OPS.md)
+      "max_instances": 1,
+      // Node + Mongo driver + Socket.IO — lite (256MiB) is too small
+      "instance_type": "basic"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PULSE_API",
+        "class_name": "PulseApiContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PulseApiContainer"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

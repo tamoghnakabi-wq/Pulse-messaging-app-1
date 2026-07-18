@@ -4,6 +4,10 @@ import config from './config';
 import { connectDatabase } from './config/database';
 import { initSocket, resetPresenceOnBoot } from './socket';
 import logger from './utils/logger';
+import {
+  startGameScheduler,
+  stopGameScheduler,
+} from './services/game/gameScheduler';
 
 async function bootstrap() {
   try {
@@ -15,6 +19,9 @@ async function bootstrap() {
     const server = http.createServer(app);
     initSocket(server);
 
+    // Trusted in-process sweep: timed rounds + abandoned stats leases
+    startGameScheduler(7_000);
+
     server.listen(config.port, '0.0.0.0', () => {
       logger.info(`Pulse API running on port ${config.port}`);
       logger.info(`Environment: ${config.env}`);
@@ -25,6 +32,7 @@ async function bootstrap() {
 
     const shutdown = (signal: string) => {
       logger.info(`${signal} received, shutting down...`);
+      stopGameScheduler();
       server.close(() => {
         process.exit(0);
       });

@@ -12,7 +12,9 @@ import {
   Monitor,
   Trash2,
   Users,
+  Gamepad2,
 } from 'lucide-react';
+import { GamesPanel } from './play/GamesPanel';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { MessageBubble } from './MessageBubble';
@@ -88,6 +90,7 @@ export function ChatWindow() {
   const [deletingChat, setDeletingChat] = useState(false);
   const [groupCallOpen, setGroupCallOpen] = useState(false);
   const [groupCallDefaultType, setGroupCallDefaultType] = useState<CallType>('audio');
+  const [showGames, setShowGames] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -778,11 +781,21 @@ export function ChatWindow() {
           </button>
         </div>
 
-        <div className="relative flex shrink-0 items-center">
+        <div className="chat-header-actions relative flex max-w-[min(52%,18rem)] shrink-0 items-center justify-end gap-0 overflow-x-auto sm:max-w-none sm:gap-0.5">
           <Button
             variant="ghost"
             size="icon"
-            className="icon-btn text-[var(--color-ink-secondary)]"
+            className="icon-btn shrink-0 text-[var(--color-ink-secondary)]"
+            aria-label="Games history and leaderboard"
+            title="Games"
+            onClick={() => setShowGames(true)}
+          >
+            <Gamepad2 className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="icon-btn shrink-0 text-[var(--color-ink-secondary)]"
             aria-label="Search in chat"
             onClick={() => setSearchOpen(!searchOpen)}
           >
@@ -793,7 +806,7 @@ export function ChatWindow() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="icon-btn text-[var(--color-ink-secondary)]"
+                className="icon-btn shrink-0 text-[var(--color-ink-secondary)]"
                 aria-label={conversation.type === 'group' ? 'Group voice call' : 'Voice call'}
                 onClick={() => void doCall('audio')}
               >
@@ -802,7 +815,7 @@ export function ChatWindow() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="icon-btn hidden text-[var(--color-ink-secondary)] sm:inline-flex"
+                className="icon-btn hidden shrink-0 text-[var(--color-ink-secondary)] md:inline-flex"
                 aria-label={conversation.type === 'group' ? 'Group video call' : 'Video call'}
                 onClick={() => void doCall('video')}
               >
@@ -812,7 +825,7 @@ export function ChatWindow() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="icon-btn hidden text-[var(--color-ink-secondary)] lg:inline-flex"
+                  className="icon-btn hidden shrink-0 text-[var(--color-ink-secondary)] xl:inline-flex"
                   aria-label="Share screen"
                   onClick={() => void doCall('screen')}
                 >
@@ -1075,6 +1088,11 @@ export function ChatWindow() {
       </div>
 
       <MessageInput conversationId={conversation.id} />
+      <GamesPanel
+        conversationId={conversation.id}
+        open={showGames}
+        onClose={() => setShowGames(false)}
+      />
 
       <UserProfileModal
         open={!!profileUserId}

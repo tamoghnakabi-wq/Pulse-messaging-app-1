@@ -28,3 +28,11 @@ export type {
   CallHistoryUser,
 } from './callHistory';
 export type { NotificationItem } from './notification';
+export type {
+  GameTypeId,
+  GameStatus,
+  GamePlayer,
+  PulseGame,
+  GameCatalogItem,
+  LeaderboardRow,
+} from './game';

@@ -8,6 +8,7 @@ import config from '../config';
 import logger from '../utils/logger';
 import { registerCallHandlers } from './handlers/call.handlers';
 import { registerMessagingHandlers } from './handlers/messaging.handlers';
+import { registerGameHandlers } from './handlers/game.handlers';
 import {
   onlineUsers,
   typingUsers,
@@ -155,6 +156,7 @@ export function initSocket(httpServer: HttpServer): Server {
 
     registerMessagingHandlers(socket);
     registerCallHandlers(io!, socket);
+    registerGameHandlers(io!, socket);
 
     socket.on('disconnect', (reason) => {
       logger.info(`Socket disconnected: ${userId} (${socket.id}) reason=${reason}`);

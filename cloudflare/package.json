@@ -1,0 +1,20 @@
+{
+  "name": "pulse-cloudflare",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Containers Worker entry for the Pulse API",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy --config ../wrangler.jsonc",
+    "dev": "wrangler dev --config ../wrangler.jsonc",
+    "types": "wrangler types --config ../wrangler.jsonc"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250712.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.112.0"
+  }
+}

@@ -141,6 +141,9 @@ export function formatMessage(
         ? false
         : undefined;
 
+  const gameIdRaw = (raw as { gameId?: unknown }).gameId;
+  const gameId = gameIdRaw ? idString(gameIdRaw) : undefined;
+
   const formatted = {
     ...raw,
     id,
@@ -149,6 +152,7 @@ export function formatMessage(
     sender,
     replyTo: replyTo || undefined,
     attachments: attachments || [],
+    gameId: gameId || undefined,
     viewOnce,
     viewOnceOpened: viewerId ? viewOnceOpened : anyoneOpened,
     // Explicit undefined when unknown — do not default recipients to "opened"

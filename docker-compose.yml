@@ -22,6 +22,7 @@ services:
       - '5000:5000'
     environment:
       NODE_ENV: production
+      # Match published port (image default is 8080 for Fly)
       PORT: 5000
       MONGODB_URI: mongodb://mongodb:27017/pulse
       # No insecure defaults — set these in the host environment or a secrets file
@@ -32,12 +33,26 @@ services:
       API_URL: ${API_URL:-http://localhost}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       UPLOAD_DIR: /app/uploads
+      # Keep game timer scheduler on in production containers
+      GAME_SCHEDULER: ${GAME_SCHEDULER:-1}
     volumes:
       - pulse_uploads:/app/uploads
     depends_on:
       - mongodb
     networks:
       - pulse-network
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
 
   frontend:
     build:

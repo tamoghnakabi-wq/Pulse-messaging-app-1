@@ -559,6 +559,14 @@ export function useSocketEvents() {
       toast.error(msg);
     };
 
+    const onGameEvent = (payload: { game?: { id?: string } }) => {
+      if (payload?.game?.id) {
+        window.dispatchEvent(
+          new CustomEvent('pulse:game-updated', { detail: payload.game })
+        );
+      }
+    };
+
     socket.on('message:new', onMessage);
     socket.on('message:updated', onUpdated);
     socket.on('message:deleted', onDeleted);
@@ -588,6 +596,11 @@ export function useSocketEvents() {
     socket.on('call:group:ended', onGroupEnded);
     socket.on('call:group:joined', onGroupRoster);
     socket.on('call:error', onCallError);
+    socket.on('game:created', onGameEvent);
+    socket.on('game:updated', onGameEvent);
+    socket.on('game:started', onGameEvent);
+    socket.on('game:completed', onGameEvent);
+    socket.on('game:expired', onGameEvent);
 
     return () => {
       boundRef.current = false;
@@ -624,6 +637,11 @@ export function useSocketEvents() {
       socket.off('call:group:peer-joined', onGroupPeerJoined);
       socket.off('call:group:peer-left', onGroupPeerLeft);
       socket.off('call:group:peer-rejected', onGroupPeerRejected);
+      socket.off('game:created', onGameEvent);
+      socket.off('game:updated', onGameEvent);
+      socket.off('game:started', onGameEvent);
+      socket.off('game:completed', onGameEvent);
+      socket.off('game:expired', onGameEvent);
       socket.off('call:group:ended', onGroupEnded);
       socket.off('call:group:joined', onGroupRoster);
       socket.off('call:error', onCallError);

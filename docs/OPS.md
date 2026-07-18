@@ -2,6 +2,8 @@
 
 Pragmatic ops roadmap so calls and multi-instance deploys stay reliable as usage grows.
 
+**Deploy now (24/7):** [DEPLOY.md](./DEPLOY.md) · **Cloudflare Workers compatibility:** [CLOUDFLARE.md](./CLOUDFLARE.md) (Workers = not supported as-is).
+
 ## 1. Calls infrastructure
 
 | Layer | Current | Production target |

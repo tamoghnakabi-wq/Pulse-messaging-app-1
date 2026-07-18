@@ -1,6 +1,14 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
-export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice' | 'system';
+export type MessageType =
+  | 'text'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'document'
+  | 'voice'
+  | 'system'
+  | 'game';
 
 export interface IReaction {
   emoji: string;
@@ -53,6 +61,8 @@ export interface IMessage extends Document {
   /** Users who have opened a view-once photo (not including sender) */
   viewOnceViewedBy?: Types.ObjectId[];
   clientId?: string;
+  /** Pulse Play game card — authoritative state lives on Game model */
+  gameId?: Types.ObjectId;
   /** True when `content` is client-side E2E ciphertext (server stores opaque blob) */
   isE2E?: boolean;
   linkPreview?: {
@@ -98,9 +108,10 @@ const messageSchema = new Schema<IMessage>(
     sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'document', 'voice', 'system'],
+      enum: ['text', 'image', 'video', 'audio', 'document', 'voice', 'system', 'game'],
       default: 'text',
     },
+    gameId: { type: Schema.Types.ObjectId, ref: 'Game', index: true },
     // Room for base64 ciphertext (E2E expands payload vs plaintext)
     content: { type: String, default: '', maxlength: 20000 },
     attachments: { type: [attachmentSchema], default: [] },
