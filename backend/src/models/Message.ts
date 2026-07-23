@@ -8,7 +8,8 @@ export type MessageType =
   | 'document'
   | 'voice'
   | 'system'
-  | 'game';
+  | 'game'
+  | 'poll';
 
 export interface IReaction {
   emoji: string;
@@ -63,6 +64,8 @@ export interface IMessage extends Document {
   clientId?: string;
   /** Pulse Play game card — authoritative state lives on Game model */
   gameId?: Types.ObjectId;
+  /** Chat poll — authoritative state lives on Poll model */
+  pollId?: Types.ObjectId;
   /** True when `content` is client-side E2E ciphertext (server stores opaque blob) */
   isE2E?: boolean;
   linkPreview?: {
@@ -108,10 +111,21 @@ const messageSchema = new Schema<IMessage>(
     sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'document', 'voice', 'system', 'game'],
+      enum: [
+        'text',
+        'image',
+        'video',
+        'audio',
+        'document',
+        'voice',
+        'system',
+        'game',
+        'poll',
+      ],
       default: 'text',
     },
     gameId: { type: Schema.Types.ObjectId, ref: 'Game', index: true },
+    pollId: { type: Schema.Types.ObjectId, ref: 'Poll', index: true },
     // Room for base64 ciphertext (E2E expands payload vs plaintext)
     content: { type: String, default: '', maxlength: 20000 },
     attachments: { type: [attachmentSchema], default: [] },

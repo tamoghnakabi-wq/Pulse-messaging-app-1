@@ -185,7 +185,7 @@ Server-authoritative in-chat games (Tic-Tac-Toe, Connect Four, Trivia Duel, Emoj
 | E2E private keys on device storage | Medium | Device-bound; cleared on logout context; multi-device full sync not shipped |
 | Media / call audio-video not fully E2E on wire | Medium | Text E2E production-ready; calls use authenticated server relay (PCM/JPEG) with **active-call gates** |
 | First contact may send plaintext until peer key exists | Low | By design for UX; fail-closed once keys expected |
-| Malware scan optional until configured | Medium | Set `MALWARE_SCAN_CMD` in prod; **fail-closed by default** when scanner is configured in production |
+| Malware scan optional until configured | Medium | **Compose wires ClamAV** (`MALWARE_SCAN_CMD=/app/malware-scan.sh`, fail-closed). Local dev may leave unset. |
 | Impossible travel is IP-heuristic only (no geo DB) | Low | Alerts only; no false lockouts |
 | CSP allows `unsafe-inline` on SPA (Vite/fonts) | Low | Tighten for static production deploy if feasible; `upgrade-insecure-requests` enabled |
 | Group invite codes exist without public join abuse suite | Low | Invite not fully productized |

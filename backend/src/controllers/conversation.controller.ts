@@ -271,6 +271,22 @@ export const uploadGroupAvatar = asyncHandler(async (req: AuthRequest, res: Resp
     unlinkQuiet(req.file.path);
     throw new AppError('Group avatar file content is invalid', 400, 'INVALID_FILE_CONTENT');
   }
+  {
+    const { scanUploadedFile } = await import('../utils/malwareScan');
+    const { stripImageMetadata } = await import('../utils/imageSanitize');
+    const { recordSecurityEvent } = await import('../utils/securityEvents');
+    const scan = await scanUploadedFile(req.file.path);
+    if (!scan.clean) {
+      unlinkQuiet(req.file.path);
+      recordSecurityEvent('malware_blocked', {
+        userId: req.userId,
+        ip: req.ip,
+        meta: { reason: scan.reason || 'flagged', kind: 'group_avatar' },
+      });
+      throw new AppError(scan.reason || 'File failed security scan', 400, 'MALWARE_BLOCKED');
+    }
+    stripImageMetadata(req.file.path, req.file.mimetype);
+  }
 
   // Relative path so group avatars survive ngrok URL changes
   conv.avatar = toRelativeMediaPath(fileUrl(req.file.filename, req.file.mimetype));

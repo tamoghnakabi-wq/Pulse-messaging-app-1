@@ -36,3 +36,4 @@ export type {
   GameCatalogItem,
   LeaderboardRow,
 } from './game';
+export type { PollOption, PulsePoll, CreatePollInput } from './poll';

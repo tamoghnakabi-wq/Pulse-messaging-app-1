@@ -58,6 +58,9 @@ jobs:
       - name: Pulse Play hardening (scheduler + stats lease)
         run: npm run test:game-hardening
 
+      - name: Malware scan hook unit tests
+        run: npm run test:malware
+
   # Full API + socket smoke against MongoDB (integration).
   # Skips gracefully if the job is disabled; required only when secrets/services ready.
   smoke:

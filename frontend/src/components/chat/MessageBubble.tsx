@@ -35,6 +35,7 @@ import { MessageMenuItems } from '@/features/chat/components/message/MessageMenu
 import { decryptMediaAttachment, E2E_PREFIX, isE2EMediaMeta } from '../../services/e2e';
 import { E2EMediaAttachment, isE2EAttachment } from './E2EMediaAttachment';
 import { GameCard } from './play/GameCard';
+import { PollCard } from './poll/PollCard';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -279,6 +280,8 @@ function MessageBubbleInner({
   const isMine = sender.id === userId;
   const isSystem = message.type === 'system';
   const isGame = message.type === 'game' || !!message.gameId;
+  const isPoll = message.type === 'poll' || !!message.pollId;
+  const pollId = message.pollId ? String(message.pollId) : '';
   const gameId =
     message.gameId ||
     (typeof (message as { gameId?: string }).gameId === 'string'
@@ -738,9 +741,17 @@ function MessageBubbleInner({
           {/* Pulse Play game card (server-authoritative) */}
           {isGame && gameId && <GameCard gameId={String(gameId)} />}
 
+          {/* Chat poll (server-authoritative) */}
+          {isPoll && pollId && (
+            <div className="mb-1">
+              <PollCard pollId={pollId} />
+            </div>
+          )}
+
           {/* Attachments (skip raw images for recipient view-once — use placeholder above) */}
           {!(message.viewOnce && !isMine) &&
             !isGame &&
+            !isPoll &&
             message.attachments?.map((att, i) => {
             // E2E: decrypt on device only — server has ciphertext
             if (isE2EAttachment(att)) {
@@ -832,7 +843,7 @@ function MessageBubbleInner({
             );
           })}
 
-          {(message.content || cipherPending) && (
+          {!isGame && !isPoll && (message.content || cipherPending) && (
             <div className="msg-md text-[15px] leading-[1.42] tracking-[-0.012em] break-words sm:text-[14.5px]">
               {cipherPending ? (
                 // Soft placeholder — never show 🔐e2e:… base64 in the bubble

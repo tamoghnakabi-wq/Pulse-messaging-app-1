@@ -1,5 +1,6 @@
 # Production compose — require real secrets via environment / .env
 # Mongo is internal-only (not published). Override JWT_* or the API will refuse to start.
+# Malware: ClamAV daemon + backend MALWARE_SCAN_CMD (fail-closed in production).
 services:
   mongodb:
     image: mongo:7
@@ -12,14 +13,34 @@ services:
       - pulse-network
     command: ['mongod', '--bind_ip_all']
 
+  clamav:
+    # Debian multi-arch (arm64/amd64). Alpine `clamav/clamav` is often amd64-only.
+    image: clamav/clamav-debian:stable
+    # On Apple Silicon, if pull fails, force: platform: linux/amd64
+    platform: linux/amd64
+    container_name: pulse-clamav
+    restart: unless-stopped
+    volumes:
+      - pulse_clamav_data:/var/lib/clamav
+    networks:
+      - pulse-network
+    # First start downloads virus defs (can take several minutes)
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdscan --ping 2>/dev/null || exit 1']
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 360s
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: pulse-backend
     restart: unless-stopped
+    # Host 5050 avoids macOS AirPlay on :5000; override with BACKEND_HOST_PORT
     ports:
-      - '5000:5000'
+      - '${BACKEND_HOST_PORT:-5050}:5000'
     environment:
       NODE_ENV: production
       # Match published port (image default is 8080 for Fly)
@@ -35,10 +56,18 @@ services:
       UPLOAD_DIR: /app/uploads
       # Keep game timer scheduler on in production containers
       GAME_SCHEDULER: ${GAME_SCHEDULER:-1}
+      # ClamAV — stream uploads to the clamav service (fail-closed in production)
+      MALWARE_SCAN_CMD: ${MALWARE_SCAN_CMD:-/app/malware-scan.sh}
+      MALWARE_SCAN_FAIL_CLOSED: ${MALWARE_SCAN_FAIL_CLOSED:-true}
+      MALWARE_SCAN_TIMEOUT_MS: ${MALWARE_SCAN_TIMEOUT_MS:-30000}
+      CLAMD_HOST: clamav
+      CLAMD_PORT: '3310'
+      CLAMD_CONFIG: /app/clamd.conf
     volumes:
       - pulse_uploads:/app/uploads
     depends_on:
       - mongodb
+      - clamav
     networks:
       - pulse-network
     healthcheck:
@@ -56,8 +85,9 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      # Repo root so Vite can resolve ../shared/e2e-media-crypto
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
         # Empty = same-origin /api via nginx proxy (correct for this compose layout)
         VITE_API_URL: ${VITE_API_URL:-}
@@ -74,6 +104,7 @@ services:
 volumes:
   pulse_mongo_data:
   pulse_uploads:
+  pulse_clamav_data:
 
 networks:
   pulse-network:

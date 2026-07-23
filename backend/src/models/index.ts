@@ -9,4 +9,5 @@ export { UserReport, IUserReport } from './UserReport';
 export { Game, IGame, IGamePlayer } from './Game';
 export { GameStats, IGameStats } from './GameStats';
 export { GameStatEvent, IGameStatEvent } from './GameStatEvent';
+export { Poll, IPoll, IPollOption, IPollVote } from './Poll';
 

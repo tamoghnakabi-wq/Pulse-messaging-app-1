@@ -18,8 +18,10 @@ import {
   Square,
   Timer,
   Gamepad2,
+  BarChart3,
 } from 'lucide-react';
 import { PlayPicker } from './play/PlayPicker';
+import { PollComposer } from './poll/PollComposer';
 import type { EmojiClickData } from 'emoji-picker-react';
 import { Theme } from 'emoji-picker-react';
 import { Button } from '../ui/Button';
@@ -55,6 +57,7 @@ export function MessageInput({ conversationId }: Props) {
   const [sending, setSending] = useState(false);
   const [viewOnce, setViewOnce] = useState(false);
   const [showPlay, setShowPlay] = useState(false);
+  const [showPoll, setShowPoll] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
@@ -602,6 +605,17 @@ export function MessageInput({ conversationId }: Props) {
             variant="ghost"
             size="icon"
             className="attach-btn text-[var(--color-ink-secondary)]"
+            aria-label="Create a poll"
+            title="Poll"
+            onClick={() => setShowPoll(true)}
+          >
+            <BarChart3 className="h-5 w-5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="attach-btn text-[var(--color-ink-secondary)]"
             aria-label="Attach file"
             onClick={() => fileRef.current?.click()}
           >
@@ -693,6 +707,11 @@ export function MessageInput({ conversationId }: Props) {
         conversationId={conversationId}
         open={showPlay}
         onClose={() => setShowPlay(false)}
+      />
+      <PollComposer
+        conversationId={conversationId}
+        open={showPoll}
+        onClose={() => setShowPoll(false)}
       />
     </div>
   );

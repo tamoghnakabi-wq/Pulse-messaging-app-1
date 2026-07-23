@@ -143,6 +143,8 @@ export function formatMessage(
 
   const gameIdRaw = (raw as { gameId?: unknown }).gameId;
   const gameId = gameIdRaw ? idString(gameIdRaw) : undefined;
+  const pollIdRaw = (raw as { pollId?: unknown }).pollId;
+  const pollId = pollIdRaw ? idString(pollIdRaw) : undefined;
 
   const formatted = {
     ...raw,
@@ -153,6 +155,7 @@ export function formatMessage(
     replyTo: replyTo || undefined,
     attachments: attachments || [],
     gameId: gameId || undefined,
+    pollId: pollId || undefined,
     viewOnce,
     viewOnceOpened: viewerId ? viewOnceOpened : anyoneOpened,
     // Explicit undefined when unknown — do not default recipients to "opened"

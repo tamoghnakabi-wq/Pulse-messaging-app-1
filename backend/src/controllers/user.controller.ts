@@ -211,9 +211,15 @@ export const uploadAvatar = asyncHandler(async (req: AuthRequest, res: Response)
   }
   const { scanUploadedFile } = await import('../utils/malwareScan');
   const { stripImageMetadata } = await import('../utils/imageSanitize');
+  const { recordSecurityEvent } = await import('../utils/securityEvents');
   const scan = await scanUploadedFile(req.file.path);
   if (!scan.clean) {
     unlinkQuiet(req.file.path);
+    recordSecurityEvent('malware_blocked', {
+      userId: req.userId,
+      ip: req.ip,
+      meta: { reason: scan.reason || 'flagged', kind: 'avatar' },
+    });
     throw new AppError(scan.reason || 'File failed security scan', 400, 'MALWARE_BLOCKED');
   }
   stripImageMetadata(req.file.path, req.file.mimetype);
@@ -256,9 +262,15 @@ export const uploadCoverPhoto = asyncHandler(async (req: AuthRequest, res: Respo
   {
     const { scanUploadedFile } = await import('../utils/malwareScan');
     const { stripImageMetadata } = await import('../utils/imageSanitize');
+    const { recordSecurityEvent } = await import('../utils/securityEvents');
     const scan = await scanUploadedFile(req.file.path);
     if (!scan.clean) {
       unlinkQuiet(req.file.path);
+      recordSecurityEvent('malware_blocked', {
+        userId: req.userId,
+        ip: req.ip,
+        meta: { reason: scan.reason || 'flagged', kind: 'cover' },
+      });
       throw new AppError(scan.reason || 'File failed security scan', 400, 'MALWARE_BLOCKED');
     }
     stripImageMetadata(req.file.path, req.file.mimetype);

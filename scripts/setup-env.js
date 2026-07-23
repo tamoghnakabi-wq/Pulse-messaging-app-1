@@ -31,6 +31,11 @@ COOKIE_SECURE=false
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX=500
 AUTH_RATE_LIMIT_MAX=50
+# Malware scan (optional for local dev). Docker Compose sets this automatically.
+# MALWARE_SCAN_CMD=${path.join(root, 'backend/scripts/malware-scan.sh')}
+# MALWARE_SCAN_FAIL_CLOSED=false
+# CLAMD_HOST=127.0.0.1
+# CLAMD_PORT=3310
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=

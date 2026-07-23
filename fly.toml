@@ -19,6 +19,10 @@ primary_region = "syd"
   NODE_ENV = "production"
   PORT = "8080"
   # UPLOAD_DIR is container-local; attach a volume for persistence if needed
+  # Malware: only set MALWARE_SCAN_CMD when a reachable clamd exists (sidecar).
+  # Otherwise leave unset — fail-closed with a dead scanner rejects every upload.
+  # MALWARE_SCAN_CMD = "/app/malware-scan.sh"
+  # CLAMD_HOST = "clamav.internal"
 
 [http_service]
   internal_port = 8080

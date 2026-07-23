@@ -102,7 +102,19 @@ export const register = asyncHandler(async (req: AuthRequest, res: Response) => 
     emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
   });
 
-  await sendVerificationEmail(email, verificationToken, user.displayName);
+  // Never fail registration after the user row exists (would orphan account → 409 on retry).
+  // SMTP is often unset on first Docker/tunnel deploys; account still works without email.
+  let verificationEmailSent = true;
+  try {
+    await sendVerificationEmail(email, verificationToken, user.displayName);
+  } catch (err) {
+    verificationEmailSent = false;
+    const { default: logger } = await import('../utils/logger');
+    logger.warn('Verification email skipped after register', {
+      userId: user._id.toString(),
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Temporary session id for signing - create session properly
   const tempRefresh = signRefreshToken(user._id.toString(), 'pending');
@@ -122,6 +134,13 @@ export const register = asyncHandler(async (req: AuthRequest, res: Response) => 
       user: user.toPublicJSON(),
       accessToken,
       refreshToken,
+      verificationEmailSent,
+      ...(verificationEmailSent
+        ? {}
+        : {
+            message:
+              'Account created. Email verification could not be sent (mail not configured) — you can still sign in.',
+          }),
     },
   });
 });
@@ -612,7 +631,15 @@ export const resendVerification = asyncHandler(async (req: AuthRequest, res: Res
   user.emailVerificationToken = hashToken(token);
   user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await user.save();
-  await sendVerificationEmail(user.email, token, user.displayName);
+  try {
+    await sendVerificationEmail(user.email, token, user.displayName);
+  } catch {
+    throw new AppError(
+      'Could not send verification email. Mail is not configured on this server.',
+      503,
+      'EMAIL_UNAVAILABLE'
+    );
+  }
 
   res.json({ success: true, data: { message: 'Verification email sent' } });
 });

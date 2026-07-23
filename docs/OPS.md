@@ -29,9 +29,55 @@ Single-node remains fine for small deployments; add Redis before horizontal scal
 
 ## 3. Malware scanning
 
-- Set `MALWARE_SCAN_CMD` to a scanner binary (e.g. ClamAV wrapper).
-- In production, fail-closed is the default when a scanner is configured (`MALWARE_SCAN_FAIL_CLOSED` unless explicitly `false`).
-- CI does not require a scanner; production should.
+Uploads (chat attachments, avatars, covers, group avatars) call `scanUploadedFile` before they are accepted.
+
+### Docker Compose (recommended)
+
+Compose includes a **ClamAV** service and wires the API automatically:
+
+```yaml
+MALWARE_SCAN_CMD=/app/malware-scan.sh
+MALWARE_SCAN_FAIL_CLOSED=true
+CLAMD_HOST=clamav
+```
+
+```bash
+docker compose up -d --build
+# First ClamAV start downloads virus defs (several minutes). Watch:
+docker compose logs -f clamav
+```
+
+Backend image ships `clamdscan` + `/app/malware-scan.sh`, which streams files to `clamav:3310`.
+
+### Manual / host install
+
+```bash
+# macOS example
+brew install clamav
+# or use the wrapper against a remote clamd:
+export MALWARE_SCAN_CMD="/path/to/pulse/backend/scripts/malware-scan.sh"
+export CLAMD_HOST=127.0.0.1
+export CLAMD_PORT=3310
+```
+
+Or a direct binary with args:
+
+```bash
+export MALWARE_SCAN_CMD="clamdscan --no-summary --stream"
+```
+
+### Behaviour
+
+| Env | Meaning |
+|-----|---------|
+| `MALWARE_SCAN_CMD` unset | No scan (dev default) |
+| Scanner exit **0** | Clean — accept |
+| Scanner exit **1** | Infected — reject (`MALWARE_BLOCKED`) |
+| Scanner error / timeout | Reject if fail-closed (production default when cmd is set) |
+
+- Production defaults **fail-closed** when a scanner is configured (`MALWARE_SCAN_FAIL_CLOSED` unless explicitly `false`).
+- CI does not require ClamAV; unit tests mock a fake scanner (`npm run test:malware`).
+- Fly / Cloudflare Containers: run ClamAV as a sidecar or leave `MALWARE_SCAN_CMD` unset until you have a reachable `clamd` (otherwise fail-closed will reject all uploads).
 
 ## 4. Observability
 

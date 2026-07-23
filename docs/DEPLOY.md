@@ -190,7 +190,7 @@ Quick tunnels (`*.trycloudflare.com` from `npm run dev`) **die when your Mac sle
 - [ ] `docker compose ps` shows `restart: unless-stopped` healthy  
 - [ ] `/api/health` returns ok from the public URL  
 - [ ] Socket.IO connects (browser Network → WS)  
-- [ ] Optional: `MALWARE_SCAN_CMD` if you require AV  
+- [ ] Malware scan: Compose sets `MALWARE_SCAN_CMD=/app/malware-scan.sh` + ClamAV service (wait for defs on first boot)
 
 ---
 

@@ -21,6 +21,8 @@ backend/dist/
 ngrok.log
 .cache/
 .wrangler/
+# Local compose overrides (ports/CORS); keep machine-specific
+docker-compose.override.yml
 
 logs/
 !.gitkeep

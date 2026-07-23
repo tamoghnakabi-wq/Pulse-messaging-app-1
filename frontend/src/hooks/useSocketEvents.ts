@@ -567,6 +567,14 @@ export function useSocketEvents() {
       }
     };
 
+    const onPollUpdated = (payload: { poll?: { id?: string } }) => {
+      if (payload?.poll?.id) {
+        window.dispatchEvent(
+          new CustomEvent('pulse:poll-updated', { detail: payload.poll })
+        );
+      }
+    };
+
     socket.on('message:new', onMessage);
     socket.on('message:updated', onUpdated);
     socket.on('message:deleted', onDeleted);
@@ -601,6 +609,7 @@ export function useSocketEvents() {
     socket.on('game:started', onGameEvent);
     socket.on('game:completed', onGameEvent);
     socket.on('game:expired', onGameEvent);
+    socket.on('poll:updated', onPollUpdated);
 
     return () => {
       boundRef.current = false;
@@ -642,6 +651,7 @@ export function useSocketEvents() {
       socket.off('game:started', onGameEvent);
       socket.off('game:completed', onGameEvent);
       socket.off('game:expired', onGameEvent);
+      socket.off('poll:updated', onPollUpdated);
       socket.off('call:group:ended', onGroupEnded);
       socket.off('call:group:joined', onGroupRoster);
       socket.off('call:error', onCallError);

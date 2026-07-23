@@ -7,6 +7,7 @@ import uploadRoutes from './upload.routes';
 import notificationRoutes from './notification.routes';
 import callRoutes from './call.routes';
 import gameRoutes from './game.routes';
+import pollRoutes from './poll.routes';
 
 const router = Router();
 
@@ -29,5 +30,6 @@ router.use('/uploads', uploadRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/calls', callRoutes);
 router.use('/games', gameRoutes);
+router.use('/polls', pollRoutes);
 
 export default router;

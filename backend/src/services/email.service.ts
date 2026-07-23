@@ -43,6 +43,8 @@ export async function sendEmail(options: {
       logger.error(
         `[email] SMTP not configured — cannot deliver mail to ${options.to} (${options.subject})`
       );
+      // Callers that can proceed without mail (e.g. register) must catch this.
+      // Forgot-password already fires-and-forgets so the client is not blocked.
       throw new Error('Email delivery is not configured');
     }
     logger.info(`[email:dev] To: ${options.to} | Subject: ${options.subject}`);

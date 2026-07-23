@@ -35,7 +35,8 @@ export type MessageType =
   | 'document'
   | 'voice'
   | 'system'
-  | 'game';
+  | 'game'
+  | 'poll';
 
 export interface LinkPreview {
   url: string;
@@ -73,6 +74,8 @@ export interface Message {
   clientId?: string;
   /** Pulse Play — references Game document (server-authoritative) */
   gameId?: string;
+  /** Chat poll — references Poll document (server-authoritative) */
+  pollId?: string;
   /** Content is client-side E2E ciphertext */
   isE2E?: boolean;
   createdAt: string;

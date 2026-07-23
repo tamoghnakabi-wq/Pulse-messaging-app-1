@@ -114,6 +114,8 @@ function isPreviewLocked(content?: string | null): boolean {
 
 function messagePreview(m: Message): string {
   if (m.isDeleted) return 'Message deleted';
+  if (m.type === 'poll') return m.content?.trim() ? `📊 ${m.content}` : '📊 Poll';
+  if (m.type === 'game') return m.content?.trim() ? `🎮 ${m.content}` : '🎮 Game';
   // Ciphertext / failed decrypt — never show raw envelopes or E2E marketing copy as preview
   if (isPreviewLocked(m.content)) {
     // Prefer attachment type when body is only a lock placeholder
