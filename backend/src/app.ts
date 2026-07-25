@@ -12,6 +12,7 @@ import fs from 'fs';
 import config from './config';
 import routes from './routes';
 import { notFound, errorHandler } from './middleware/errorHandler';
+import { observability } from './middleware/observability';
 import { verifyUploadSignature } from './utils/mediaSign';
 
 // xss-clean has no types
@@ -22,6 +23,10 @@ const app = express();
 
 // Trust proxy (needed for ngrok / reverse proxies)
 app.set('trust proxy', 1);
+
+// First in the chain: assigns a request id, times every response and feeds
+// /api/metrics. Must precede rate limiting so throttled requests are counted.
+app.use(observability);
 
 // Auth API must never be HTTP-cached (stale empty filter lists via 304)
 app.set('etag', false);
@@ -128,8 +133,12 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.ip || req.socket.remoteAddress || 'unknown',
-  // Health checks shouldn't burn budget
-  skip: (req) => req.path === '/health' || req.path === '/api/health',
+  // Probes and scrapes shouldn't burn budget
+  skip: (req) =>
+    req.path === '/health' ||
+    req.path === '/api/health' ||
+    req.path === '/ready' ||
+    req.path === '/metrics',
   message: {
     success: false,
     error: {

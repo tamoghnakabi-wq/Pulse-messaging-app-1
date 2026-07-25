@@ -61,6 +61,12 @@ jobs:
       - name: Malware scan hook unit tests
         run: npm run test:malware
 
+      # Auth, authorization, messaging and concurrency suites. These boot the
+      # real Express app against an ephemeral MongoDB (mongodb-memory-server),
+      # so no external service is needed for this job.
+      - name: Backend integration tests
+        run: npm test -w backend
+
   # Full API + socket smoke against MongoDB (integration).
   # Skips gracefully if the job is disabled; required only when secrets/services ready.
   smoke:

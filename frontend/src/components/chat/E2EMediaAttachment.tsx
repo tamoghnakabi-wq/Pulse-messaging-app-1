@@ -21,14 +21,64 @@ interface Props {
   onOpenImage?: (url: string, name?: string) => void;
 }
 
-/** In-memory cache of decrypted object URLs (session only). */
-const decryptCache = new Map<
-  string,
-  { objectUrl: string; mimeType: string; originalName: string; size: number }
->();
+interface DecryptedEntry {
+  objectUrl: string;
+  mimeType: string;
+  originalName: string;
+  size: number;
+}
+
+/**
+ * LRU cache of decrypted object URLs (session only).
+ *
+ * Object URLs pin their Blob in memory until revoked. An unbounded cache meant
+ * every photo/video ever scrolled past stayed resident for the life of the tab —
+ * a media-heavy chat could grow to hundreds of MB and crash mobile Safari.
+ * Evicted entries are revoked so the underlying Blob can be collected.
+ */
+const MAX_CACHED_MEDIA = 60;
+const decryptCache = new Map<string, DecryptedEntry>();
 
 function cacheKey(url: string, e2eMeta: string): string {
   return `${url.split('?')[0]}::${e2eMeta.slice(0, 64)}`;
+}
+
+/** Read through the LRU, refreshing recency on hit. */
+function cacheGet(key: string): DecryptedEntry | undefined {
+  const hit = decryptCache.get(key);
+  if (!hit) return undefined;
+  decryptCache.delete(key);
+  decryptCache.set(key, hit);
+  return hit;
+}
+
+function cacheSet(key: string, entry: DecryptedEntry): void {
+  decryptCache.set(key, entry);
+  while (decryptCache.size > MAX_CACHED_MEDIA) {
+    const oldestKey = decryptCache.keys().next().value as string | undefined;
+    if (oldestKey === undefined) break;
+    const evicted = decryptCache.get(oldestKey);
+    decryptCache.delete(oldestKey);
+    if (evicted) {
+      try {
+        URL.revokeObjectURL(evicted.objectUrl);
+      } catch {
+        /* already revoked */
+      }
+    }
+  }
+}
+
+/** Drop every decrypted blob (called on logout — plaintext must not outlive the session). */
+export function clearDecryptedMediaCache(): void {
+  for (const entry of decryptCache.values()) {
+    try {
+      URL.revokeObjectURL(entry.objectUrl);
+    } catch {
+      /* */
+    }
+  }
+  decryptCache.clear();
 }
 
 export function E2EMediaAttachment({
@@ -79,7 +129,7 @@ export function E2EMediaAttachment({
       }
 
       const key = cacheKey(src, e2eMeta);
-      const cached = decryptCache.get(key);
+      const cached = cacheGet(key);
       if (cached) {
         if (!cancelled) {
           setObjectUrl(cached.objectUrl);
@@ -102,13 +152,14 @@ export function E2EMediaAttachment({
           return;
         }
         const url = URL.createObjectURL(dec.blob);
-        decryptCache.set(key, {
+        cacheSet(key, {
           objectUrl: url,
           mimeType: dec.mimeType,
           originalName: dec.originalName,
           size: dec.size,
         });
-        // Session cache keeps object URLs for re-renders (not revoked)
+        // Kept alive by the LRU (not revoked here) so re-renders and scroll-back
+        // reuse the same URL instead of re-fetching and re-decrypting.
         if (!cancelled) {
           setObjectUrl(url);
           setDisplayMime(dec.mimeType);

@@ -8,6 +8,12 @@ const THRESHOLD = 56;
 interface Props {
   children: ReactNode;
   active?: boolean;
+  /**
+   * Accessible name for the row. The visible content is a composed block of
+   * avatar + name + preview + badges, which screen readers announce as one
+   * run-on string (or, when the avatar is an image, as nothing at all).
+   */
+  label?: string;
   onOpen: () => void;
   onPin: () => void;
   onDelete: () => void;
@@ -25,6 +31,7 @@ interface Props {
 export function SwipeableChatRow({
   children,
   active,
+  label,
   onOpen,
   onPin,
   onDelete,
@@ -174,6 +181,8 @@ export function SwipeableChatRow({
       >
         <button
           type="button"
+          aria-label={label}
+          aria-current={active ? 'true' : undefined}
           className={cn(
             'chat-row touch-row pressable flex w-full items-center gap-3 px-3 py-3.5 text-left sm:px-4 sm:py-3',
             active && 'chat-row-active'

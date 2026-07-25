@@ -25,6 +25,13 @@ export interface IConversation extends Document {
   description?: string;
   avatar?: string;
   participants: IParticipant[];
+  /**
+   * Stable `${smallerUserId}:${largerUserId}` key for direct chats, unique so
+   * two people opening a chat with each other simultaneously cannot end up with
+   * two conversations. Unset for groups and for direct chats created before
+   * this field existed.
+   */
+  directKey?: string;
   createdBy: Types.ObjectId;
   lastMessage?: Types.ObjectId;
   lastMessageAt?: Date;
@@ -66,6 +73,7 @@ const conversationSchema = new Schema<IConversation>(
     description: { type: String, maxlength: 500, default: '' },
     avatar: { type: String, default: '' },
     participants: { type: [participantSchema], required: true },
+    directKey: { type: String, unique: true, sparse: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     lastMessage: { type: Schema.Types.ObjectId, ref: 'Message' },
     lastMessageAt: { type: Date },
@@ -89,6 +97,11 @@ conversationSchema.index({ 'participants.user': 1, isActive: 1, lastMessageAt: -
 conversationSchema.index({ type: 1, isActive: 1 });
 // Direct-call authorization: both participants + active
 conversationSchema.index({ type: 1, isActive: 1, 'participants.user': 1 });
+
+/** Canonical, order-independent key for the direct chat between two users. */
+export function directConversationKey(userA: string, userB: string): string {
+  return userA < userB ? `${userA}:${userB}` : `${userB}:${userA}`;
+}
 
 export const Conversation = mongoose.model<IConversation>('Conversation', conversationSchema);
 export default Conversation;

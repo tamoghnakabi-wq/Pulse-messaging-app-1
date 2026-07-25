@@ -5,6 +5,12 @@ import logger from '../utils/logger';
 import { contactsCache } from '../utils/ttlCache';
 import { getActiveCallForUser } from '../services/call/groupCall.registry';
 import { getDirectCallForUser } from '../services/call/directCall.registry';
+import {
+  isClustered,
+  isRemoteOnline,
+  remoteOnlineIds,
+  nudgeClusterPresence,
+} from './cluster';
 
 // userId -> Set of socket ids (multi-tab / multi-device)
 export const onlineUsers = new Map<string, Set<string>>();
@@ -22,16 +28,39 @@ const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
 
 let presenceSweeper: ReturnType<typeof setInterval> | null = null;
 
-export function isUserOnline(userId: string): boolean {
-  return (onlineUsers.get(userId)?.size || 0) > 0;
-}
-
-export function getOnlineUserIds(): string[] {
+/** Users with a socket on *this* instance only. */
+export function getLocalOnlineUserIds(): string[] {
   return Array.from(onlineUsers.keys()).filter((id) => (onlineUsers.get(id)?.size || 0) > 0);
 }
 
-/** Clear stale isOnline flags in DB on boot (safe — no data deleted). */
+/**
+ * Online anywhere in the cluster. Stays synchronous — it is called per
+ * recipient on the message send path — by consulting a locally-mirrored view of
+ * the other instances rather than querying Redis inline.
+ */
+export function isUserOnline(userId: string): boolean {
+  if ((onlineUsers.get(userId)?.size || 0) > 0) return true;
+  return isClustered() ? isRemoteOnline(userId) : false;
+}
+
+export function getOnlineUserIds(): string[] {
+  const local = getLocalOnlineUserIds();
+  if (!isClustered()) return local;
+  return [...new Set([...local, ...remoteOnlineIds()])];
+}
+
+/**
+ * Clear stale isOnline flags in DB on boot (safe — no data deleted).
+ *
+ * Skipped in clustered mode: one instance restarting must not declare users
+ * connected to its peers offline. The 15s sweeper reconciles instead, using the
+ * cluster-wide online set.
+ */
 export async function resetPresenceOnBoot(): Promise<void> {
+  if (isClustered()) {
+    logger.info('Clustered mode — skipping global presence reset on boot');
+    return;
+  }
   const result = await User.updateMany(
     { isOnline: true },
     { $set: { isOnline: false, lastSeen: new Date() } }
@@ -48,6 +77,8 @@ export async function markUserOffline(
   if (isUserOnline(userId)) return;
   const lastSeen = new Date();
   lastHeartbeat.delete(userId);
+  // Last socket for this user went away — refresh our snapshot for peers
+  nudgeClusterPresence();
   await User.findByIdAndUpdate(userId, { isOnline: false, lastSeen });
   void emitPresenceToContacts(io, userId, 'user:offline', {
     userId,
@@ -77,6 +108,25 @@ export function cancelScheduledOffline(userId: string): void {
 
 export function touchPresence(userId: string): void {
   lastHeartbeat.set(userId, Date.now());
+}
+
+/**
+ * Clear a user's typing timer for a conversation and drop the conversation
+ * bucket once it is empty — otherwise `typingUsers` accumulates one empty Map
+ * per conversation ever typed in, for the lifetime of the process.
+ */
+export function clearTypingEntry(conversationId: string, userId: string): boolean {
+  const map = typingUsers.get(conversationId);
+  if (!map) return false;
+  const timeout = map.get(userId);
+  if (timeout === undefined) {
+    if (map.size === 0) typingUsers.delete(conversationId);
+    return false;
+  }
+  clearTimeout(timeout);
+  map.delete(userId);
+  if (map.size === 0) typingUsers.delete(conversationId);
+  return true;
 }
 
 /** Notify presence only to users who share a conversation (not global broadcast). */

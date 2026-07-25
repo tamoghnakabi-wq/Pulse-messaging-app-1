@@ -284,11 +284,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       let dupeIdx = -1;
       for (let i = existing.length - 1; i >= 0; i--) {
         const m = existing[i];
+        // Optimistic rows are created with id === clientId (see MessageInput),
+        // so a server echo matches on either key. The three trailing clauses
+        // this replaces were all the same `m.clientId === message.clientId`
+        // comparison written three ways.
         if (
           m.id === message.id ||
           (message.clientId && m.clientId === message.clientId) ||
-          (m.clientId && message.clientId && m.clientId === message.clientId) ||
-          (m.clientId && message.id && m.clientId === message.clientId)
+          (message.clientId && m.id === message.clientId)
         ) {
           dupeIdx = i;
           break;

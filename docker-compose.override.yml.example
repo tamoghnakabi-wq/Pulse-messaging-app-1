@@ -1,0 +1,38 @@
+# Local development overrides — copy to `docker-compose.override.yml`.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# The real file is gitignored because it holds machine-specific values (tunnel
+# hostnames, published ports). This template exists so the one setting that is
+# NOT machine-specific — the uploads bind mount — isn't lost with it.
+
+services:
+  mongodb:
+    # Publish Mongo so `npm run dev` (which runs outside Docker) can reach it.
+    ports:
+      - '27017:27017'
+
+  backend:
+    # IMPORTANT: share the repo's ./uploads with the container.
+    #
+    # Production compose stores uploads in the `pulse_uploads` named volume,
+    # while `npm run dev` writes to ./uploads. Run the app both ways against the
+    # same database — which is exactly what publishing Mongo above enables — and
+    # you get one database pointing at two different file stores. An avatar
+    # uploaded under Docker then renders blank when started locally: the row
+    # still says /uploads/images/<uuid>, but those bytes only exist inside the
+    # volume. Nothing is deleted; the file is simply somewhere else.
+    #
+    # This mount makes both modes read and write the same directory.
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      COOKIE_SECURE: 'true'
+      # Replace with your own tunnel/host, or drop these three for plain localhost.
+      CLIENT_URL: https://your-tunnel.trycloudflare.com
+      CORS_ORIGINS: https://your-tunnel.trycloudflare.com,http://localhost:5173,http://127.0.0.1:5173
+      API_URL: https://your-tunnel.trycloudflare.com
+
+  clamav:
+    ports:
+      - '3310:3310'

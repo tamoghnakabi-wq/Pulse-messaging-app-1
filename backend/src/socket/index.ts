@@ -6,12 +6,14 @@ import { Session } from '../models/Session';
 import { Conversation } from '../models/Conversation';
 import config from '../config';
 import logger from '../utils/logger';
+import { socketConnected, socketDisconnected } from '../utils/metrics';
 import { registerCallHandlers } from './handlers/call.handlers';
 import { registerMessagingHandlers } from './handlers/messaging.handlers';
 import { registerGameHandlers } from './handlers/game.handlers';
 import {
   onlineUsers,
   typingUsers,
+  clearTypingEntry,
   cancelScheduledOffline,
   touchPresence,
   scheduleOffline,
@@ -28,8 +30,11 @@ import { recordCallEnded } from '../services/call/callLog.service';
 export {
   isUserOnline,
   getOnlineUserIds,
+  getLocalOnlineUserIds,
   resetPresenceOnBoot,
 } from './presence';
+export { initCluster, isClustered, shutdownCluster } from './cluster';
+import { nudgeClusterPresence } from './cluster';
 
 let io: Server | null = null;
 
@@ -115,6 +120,7 @@ export function initSocket(httpServer: HttpServer): Server {
 
   io.on('connection', async (socket: AuthedSocket) => {
     const userId = socket.userId!;
+    socketConnected();
     logger.info(`Socket connected: ${userId} (${socket.id})`);
 
     cancelScheduledOffline(userId);
@@ -133,6 +139,8 @@ export function initSocket(httpServer: HttpServer): Server {
     convs.forEach((c) => socket.join(`conversation:${c._id}`));
 
     if (onlineUsers.get(userId)!.size === 1) {
+      // This user just came online here — let peer instances know now
+      nudgeClusterPresence();
       await User.findByIdAndUpdate(userId, { isOnline: true, lastSeen: new Date() });
       void emitPresenceToContacts(io, userId, 'user:online', {
         userId,
@@ -159,6 +167,7 @@ export function initSocket(httpServer: HttpServer): Server {
     registerGameHandlers(io!, socket);
 
     socket.on('disconnect', (reason) => {
+      socketDisconnected();
       logger.info(`Socket disconnected: ${userId} (${socket.id}) reason=${reason}`);
       const set = onlineUsers.get(userId);
       if (set) {
@@ -199,16 +208,14 @@ export function initSocket(httpServer: HttpServer): Server {
         }
       }
 
-      typingUsers.forEach((map, convId) => {
-        if (map.has(userId)) {
-          clearTimeout(map.get(userId)!);
-          map.delete(userId);
+      for (const convId of [...typingUsers.keys()]) {
+        if (clearTypingEntry(convId, userId)) {
           socket.to(`conversation:${convId}`).emit('typing:stop', {
             conversationId: convId,
             userId,
           });
         }
-      });
+      }
     });
   });
 

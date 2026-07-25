@@ -25,6 +25,12 @@ export const loginSchema = z.object({
   twoFactorCode: z.string().max(32).optional(),
 });
 
+/** Second step of a 2FA login (challenge issued by /auth/login). */
+export const login2FASchema = z.object({
+  challengeId: z.string().min(1).max(128),
+  code: z.string().min(4).max(32),
+});
+
 export const forgotPasswordSchema = z.object({
   email: z.string().email().transform((s) => s.toLowerCase()),
 });

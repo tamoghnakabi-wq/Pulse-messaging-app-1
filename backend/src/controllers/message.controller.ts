@@ -8,6 +8,7 @@ import { Attachment } from '../models/Attachment';
 import { Notification } from '../models/Notification';
 import { AppError } from '../utils/AppError';
 import asyncHandler from '../utils/asyncHandler';
+import logger from '../utils/logger';
 import { getIO, isUserOnline } from '../socket';
 import { fileUrl } from '../middleware/upload';
 import { formatMessage, participantUserId } from '../utils/messageFormat';
@@ -33,22 +34,40 @@ export const getMessages = asyncHandler(async (req: AuthRequest, res: Response) 
     deletedFor: { $ne: req.userId },
   };
 
+  // Keyset pagination must use the full sort key (createdAt, _id). Comparing on
+  // createdAt alone silently drops every message sharing the cursor's timestamp,
+  // which happens routinely for bursts and bulk inserts.
+  const cursorClauses: Record<string, unknown>[] = [];
+
   if (before && isObjectIdString(before)) {
-    // Cursor from ObjectId timestamp when possible (avoids extra findById)
     const beforeOid = new Types.ObjectId(before);
     const beforeMsg = await Message.findById(beforeOid)
       .select('createdAt conversation')
       .lean();
     if (beforeMsg && String(beforeMsg.conversation) === String(conv._id)) {
-      query.createdAt = { $lt: beforeMsg.createdAt };
+      cursorClauses.push({
+        $or: [
+          { createdAt: { $lt: beforeMsg.createdAt } },
+          { createdAt: beforeMsg.createdAt, _id: { $lt: beforeOid } },
+        ],
+      });
     }
   }
   if (after && isObjectIdString(after)) {
-    const afterMsg = await Message.findById(after).select('createdAt conversation').lean();
+    const afterOid = new Types.ObjectId(after);
+    const afterMsg = await Message.findById(afterOid)
+      .select('createdAt conversation')
+      .lean();
     if (afterMsg && String(afterMsg.conversation) === String(conv._id)) {
-      query.createdAt = { $gt: afterMsg.createdAt };
+      cursorClauses.push({
+        $or: [
+          { createdAt: { $gt: afterMsg.createdAt } },
+          { createdAt: afterMsg.createdAt, _id: { $gt: afterOid } },
+        ],
+      });
     }
   }
+  if (cursorClauses.length) query.$and = cursorClauses;
 
   // Project only fields needed for UI — huge threads stay cheap per page
   const messages = await Message.find(query)
@@ -415,7 +434,15 @@ export const sendMessage = asyncHandler(async (req: AuthRequest, res: Response) 
       }
     }
     if (notifDocs.length) {
-      await Notification.insertMany(notifDocs, { ordered: false }).catch(() => undefined);
+      await Notification.insertMany(notifDocs, { ordered: false }).catch((err) => {
+        // Non-fatal for delivery, but silently dropping these hid a real class
+        // of "notifications stopped working" bugs.
+        logger.warn('Notification insert failed', {
+          conversationId: String(conv._id),
+          count: notifDocs.length,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
   } catch {
     /* socket optional */
@@ -493,29 +520,58 @@ export const reactToMessage = asyncHandler(async (req: AuthRequest, res: Respons
     throw new AppError('Invalid emoji', 400);
   }
 
-  const existing = message.reactions.find((r) => r.emoji === emoji);
+  // Toggle atomically. The previous read-modify-write rewrote the whole
+  // reactions array, so two people reacting to the same message at once lost
+  // one of the reactions — routine in an active group chat.
+  const uid = new Types.ObjectId(req.userId);
+  const MAX_REACTION_TYPES = 20;
 
-  if (existing) {
-    const idx = existing.users.findIndex((u) => u.toString() === req.userId);
-    if (idx >= 0) {
-      existing.users.splice(idx, 1);
-      if (existing.users.length === 0) {
-        message.reactions = message.reactions.filter((r) => r.emoji !== emoji);
-      }
-    } else {
-      existing.users.push(new Types.ObjectId(req.userId));
-    }
+  const removed = await Message.updateOne(
+    { _id: message._id, reactions: { $elemMatch: { emoji, users: uid } } },
+    { $pull: { 'reactions.$.users': uid } }
+  );
+
+  if (removed.modifiedCount > 0) {
+    // Drop the bucket if that was the last user for this emoji
+    await Message.updateOne(
+      { _id: message._id },
+      { $pull: { reactions: { users: { $size: 0 } } } }
+    );
   } else {
-    if (message.reactions.length >= 20) {
-      throw new AppError('Too many reaction types', 400);
+    const added = await Message.updateOne(
+      { _id: message._id, 'reactions.emoji': emoji },
+      { $addToSet: { 'reactions.$.users': uid } }
+    );
+
+    if (added.matchedCount === 0) {
+      // No bucket for this emoji yet — create one, capped by a positional
+      // existence check so the limit is enforced without reading first.
+      const created = await Message.updateOne(
+        {
+          _id: message._id,
+          'reactions.emoji': { $ne: emoji },
+          [`reactions.${MAX_REACTION_TYPES - 1}`]: { $exists: false },
+        },
+        { $push: { reactions: { emoji, users: [uid] } } }
+      );
+      if (created.matchedCount === 0) {
+        // Either the cap is hit or a concurrent request just created the
+        // bucket. Only the former is an error.
+        const current = await Message.findById(message._id).select('reactions').lean();
+        const hasEmoji = (current?.reactions || []).some((r) => r.emoji === emoji);
+        if (!hasEmoji) throw new AppError('Too many reaction types', 400);
+        await Message.updateOne(
+          { _id: message._id, 'reactions.emoji': emoji },
+          { $addToSet: { 'reactions.$.users': uid } }
+        );
+      }
     }
-    message.reactions.push({ emoji, users: [new Types.ObjectId(req.userId)] });
   }
 
-  await message.save();
-  await message.populate(messagePopulatePaths);
+  const updated = await Message.findById(message._id).populate(messagePopulatePaths);
+  if (!updated) throw new AppError('Message not found', 404);
 
-  const formatted = formatMessage(message);
+  const formatted = formatMessage(updated);
   try {
     getIO().to(`conversation:${message.conversation}`).emit('message:reaction', formatted);
   } catch {
@@ -547,8 +603,15 @@ export const openViewOnce = asyncHandler(async (req: AuthRequest, res: Response)
   }
 
   const uid = String(req.userId);
-  const already = (message.viewOnceViewedBy || []).some((id) => String(id) === uid);
-  if (already) {
+  // Atomically claim the single view. A read-then-write here let two concurrent
+  // requests both pass the "already viewed" check and both receive the media,
+  // which defeats the view-once guarantee.
+  const claim = await Message.updateOne(
+    { _id: message._id, viewOnceViewedBy: { $ne: new Types.ObjectId(uid) } },
+    { $addToSet: { viewOnceViewedBy: new Types.ObjectId(uid) } }
+  );
+
+  if (claim.modifiedCount === 0) {
     // Idempotent: return locked shape so clients can sync UI without looking "openable"
     await message.populate(messagePopulatePaths);
     const locked = formatMessage(message, { viewerId: uid });
@@ -564,9 +627,11 @@ export const openViewOnce = asyncHandler(async (req: AuthRequest, res: Response)
     return;
   }
 
-  message.viewOnceViewedBy = message.viewOnceViewedBy || [];
-  message.viewOnceViewedBy.push(new Types.ObjectId(uid));
-  await message.save();
+  // Reflect the claim on the in-memory doc used for formatting below
+  message.viewOnceViewedBy = [
+    ...(message.viewOnceViewedBy || []),
+    new Types.ObjectId(uid),
+  ];
   await message.populate(messagePopulatePaths);
 
   // One-time media for this response only
@@ -625,8 +690,19 @@ export const forwardMessage = asyncHandler(async (req: AuthRequest, res: Respons
   const ids = (conversationIds || []).filter(isObjectIdString).slice(0, 20);
   const created = [];
 
+  const { isEitherBlocked } = await import('./moderation.controller');
+
   for (const cid of ids) {
-    await ensureConversationParticipant(cid, req.userId!);
+    const target = await ensureConversationParticipant(cid, req.userId!);
+
+    // Forwarding must respect blocks the same way sendMessage does — otherwise
+    // it is a bypass for delivering messages to someone who blocked you.
+    if (target.type === 'direct') {
+      const other = target.participants.find((p) => participantUserId(p) !== req.userId);
+      const otherId = other ? participantUserId(other) : '';
+      if (otherId && (await isEitherBlocked(req.userId!, otherId))) continue;
+    }
+
     const msg = await Message.create({
       conversation: cid,
       sender: req.userId,
@@ -637,15 +713,41 @@ export const forwardMessage = asyncHandler(async (req: AuthRequest, res: Respons
       deliveredTo: [req.userId],
       readBy: [{ user: req.userId, readAt: new Date() }],
     });
-    await Conversation.findByIdAndUpdate(cid, {
-      lastMessage: msg._id,
-      lastMessageAt: msg.createdAt,
-    });
+
+    // Same bookkeeping as a normal send: bump recipients' unread badges and
+    // re-surface chats they had hidden with "delete for me". Previously a
+    // forwarded message updated only lastMessage, so it arrived with no badge.
+    await Conversation.updateOne(
+      { _id: cid },
+      {
+        $set: { lastMessage: msg._id, lastMessageAt: msg.createdAt },
+        $inc: { 'participants.$[others].unreadCount': 1 },
+        $unset: { 'participants.$[hidden].deletedForMeAt': 1 },
+      },
+      {
+        arrayFilters: [
+          { 'others.user': { $ne: new Types.ObjectId(req.userId) } },
+          { 'hidden.deletedForMeAt': { $type: 'date' } },
+        ],
+      }
+    );
+
     await msg.populate(messagePopulatePaths);
     const formatted = formatMessage(msg);
     created.push(formatted);
     try {
-      getIO().to(`conversation:${cid}`).emit('message:new', formatted);
+      const io = getIO();
+      io.to(`conversation:${cid}`).emit('message:new', formatted);
+      // Forwards were silent before: no per-user notification event meant no
+      // toast/sound/badge for recipients who did not have the chat open.
+      for (const p of target.participants) {
+        const pid = participantUserId(p);
+        if (pid === req.userId || p.isMuted) continue;
+        io.to(`user:${pid}`).emit('notification:message', {
+          conversationId: String(cid),
+          message: formatted,
+        });
+      }
     } catch {
       /* */
     }
@@ -701,21 +803,23 @@ export const pinMessage = asyncHandler(async (req: AuthRequest, res: Response) =
 export const starMessage = asyncHandler(async (req: AuthRequest, res: Response) => {
   const message = await ensureMessageAccess(req.params.id, req.userId!);
 
-  const user = await User.findById(req.userId);
-  if (!user) throw new AppError('User not found', 404);
+  // Toggle atomically. Reading the array, mutating it and saving the whole
+  // document loses concurrent stars from another device (last write wins).
+  const unstarred = await User.updateOne(
+    { _id: req.userId, starredMessages: message._id },
+    { $pull: { starredMessages: message._id } }
+  );
 
-  const idx = user.starredMessages.findIndex((id) => id.toString() === message._id.toString());
   let starred = false;
-  if (idx >= 0) {
-    user.starredMessages.splice(idx, 1);
-  } else {
-    if (user.starredMessages.length >= 500) {
-      user.starredMessages = user.starredMessages.slice(-499);
-    }
-    user.starredMessages.push(message._id);
+  if (unstarred.modifiedCount === 0) {
+    const added = await User.updateOne(
+      { _id: req.userId },
+      // $slice keeps the list bounded without a read-modify-write
+      { $push: { starredMessages: { $each: [message._id], $slice: -500 } } }
+    );
+    if (added.matchedCount === 0) throw new AppError('User not found', 404);
     starred = true;
   }
-  await user.save();
 
   res.json({
     success: true,

@@ -781,7 +781,16 @@ export function ChatWindow() {
           </button>
         </div>
 
-        <div className="chat-header-actions relative flex max-w-[min(52%,18rem)] shrink-0 items-center justify-end gap-0 overflow-x-auto sm:max-w-none sm:gap-0.5">
+        {/*
+          The scrollable icon strip and the ⋮ overflow menu are siblings on
+          purpose. `overflow-x: auto` forces `overflow-y` to compute to `auto`
+          as well, so anything absolutely positioned below the strip — like the
+          ⋮ dropdown, which anchors at `top-full` — was being clipped by a 36px
+          tall box and never appeared. Keeping the menu outside the scroll
+          container also stops the "more" affordance scrolling out of reach.
+        */}
+        <div className="flex shrink-0 items-center gap-0 sm:gap-0.5">
+          <div className="chat-header-actions flex max-w-[min(52%,18rem)] items-center justify-end gap-0 overflow-x-auto sm:max-w-none sm:gap-0.5">
           <Button
             variant="ghost"
             size="icon"
@@ -834,7 +843,9 @@ export function ChatWindow() {
               )}
             </>
           )}
-          <div className="relative" ref={menuRef}>
+          </div>
+
+          <div className="relative shrink-0" ref={menuRef}>
             <Button
               variant="ghost"
               size="icon"
@@ -974,7 +985,10 @@ export function ChatWindow() {
       <div
         ref={scrollerRef}
         onScroll={onScroll}
-        className="relative z-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-1 py-2.5 scrollbar-thin sm:px-2 sm:py-3 md:px-2.5 lg:px-3 [overflow-anchor:none]"
+        // Wider gutters on large panes. At 12px the outermost bubbles sat flush
+        // against the app frame; the intent here is still full-width (not a
+        // narrow centred column), just with breathing room at the edges.
+        className="relative z-0 min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-1 py-2.5 scrollbar-thin sm:px-2 sm:py-3 md:px-4 lg:px-6 xl:px-10 [overflow-anchor:none]"
         style={{
           WebkitOverflowScrolling: 'touch',
           // Fixed attachment fights iOS compositing and causes scroll glitch

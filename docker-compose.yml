@@ -13,6 +13,25 @@ services:
       - pulse-network
     command: ['mongod', '--bind_ip_all']
 
+  redis:
+    # Enables horizontal scaling: the API attaches the Socket.IO Redis adapter
+    # and a presence mirror when REDIS_URL is set. Optional — remove this
+    # service and REDIS_URL below to run a single instance.
+    image: redis:7-alpine
+    container_name: pulse-redis
+    restart: unless-stopped
+    # Internal-only, like Mongo
+    command: ['redis-server', '--save', '60', '1', '--appendonly', 'no']
+    volumes:
+      - pulse_redis_data:/data
+    networks:
+      - pulse-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
   clamav:
     # Debian multi-arch (arm64/amd64). Alpine `clamav/clamav` is often amd64-only.
     image: clamav/clamav-debian:stable
@@ -46,6 +65,11 @@ services:
       # Match published port (image default is 8080 for Fly)
       PORT: 5000
       MONGODB_URI: mongodb://mongodb:27017/pulse
+      # Set to run more than one API replica; unset = single-instance mode
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Required to scrape /api/metrics in production (404s without it)
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       # No insecure defaults — set these in the host environment or a secrets file
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
@@ -68,15 +92,18 @@ services:
     depends_on:
       - mongodb
       - clamav
+      - redis
     networks:
       - pulse-network
     healthcheck:
+      # /api/ready (not /health) so a dead DB connection marks the container
+      # unhealthy instead of it happily serving 500s
       test:
         [
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:5000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 20s
       timeout: 5s
@@ -105,6 +132,7 @@ volumes:
   pulse_mongo_data:
   pulse_uploads:
   pulse_clamav_data:
+  pulse_redis_data:
 
 networks:
   pulse-network:

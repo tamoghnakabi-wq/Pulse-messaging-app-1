@@ -4,7 +4,7 @@ import { User } from '../models/User';
 import { AppError } from '../utils/AppError';
 import asyncHandler from '../utils/asyncHandler';
 import { fileUrl } from '../middleware/upload';
-import { toRelativeMediaPath } from '../utils/mediaUrl';
+import { toRelativeMediaPath, deleteStoredUpload } from '../utils/mediaUrl';
 import { isUserOnline } from '../socket';
 
 function signMedia(path?: string): string {
@@ -228,8 +228,13 @@ export const uploadAvatar = asyncHandler(async (req: AuthRequest, res: Response)
   if (!user) throw new AppError('User not found', 404);
 
   // Store relative path only — survives ngrok domain changes on restart
+  const previousAvatar = user.avatar;
   user.avatar = toRelativeMediaPath(fileUrl(req.file.filename, req.file.mimetype));
   await user.save();
+  // Reclaim the replaced file; every avatar change used to orphan one on disk
+  if (previousAvatar && previousAvatar !== user.avatar) {
+    deleteStoredUpload(previousAvatar);
+  }
 
   const publicUser = user.toPublicJSON();
   if (typeof publicUser.avatar === 'string') {
@@ -279,8 +284,12 @@ export const uploadCoverPhoto = asyncHandler(async (req: AuthRequest, res: Respo
   const user = await User.findById(req.userId);
   if (!user) throw new AppError('User not found', 404);
 
+  const previousCover = user.coverPhoto;
   user.coverPhoto = toRelativeMediaPath(fileUrl(req.file.filename, req.file.mimetype));
   await user.save();
+  if (previousCover && previousCover !== user.coverPhoto) {
+    deleteStoredUpload(previousCover);
+  }
 
   const publicUser = user.toPublicJSON();
 
@@ -296,8 +305,10 @@ export const uploadCoverPhoto = asyncHandler(async (req: AuthRequest, res: Respo
 export const removeCoverPhoto = asyncHandler(async (req: AuthRequest, res: Response) => {
   const user = await User.findById(req.userId);
   if (!user) throw new AppError('User not found', 404);
+  const previousCover = user.coverPhoto;
   user.coverPhoto = '';
   await user.save();
+  if (previousCover) deleteStoredUpload(previousCover);
   res.json({
     success: true,
     data: { user: user.toPublicJSON() },

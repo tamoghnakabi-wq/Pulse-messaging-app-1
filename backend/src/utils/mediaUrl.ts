@@ -32,6 +32,33 @@ export function toRelativeMediaPath(url: string | undefined | null): string {
   return s;
 }
 
+/**
+ * Best-effort delete of a previously stored upload (avatar / cover replaced).
+ * Without this every profile-photo change orphans a file on disk forever.
+ *
+ * Resolves inside `config.uploadDir` and refuses anything that escapes it, so a
+ * tampered DB value can never be turned into an arbitrary-file delete.
+ */
+export function deleteStoredUpload(storedPath: string | undefined | null): void {
+  const relative = toRelativeMediaPath(storedPath).split('?')[0];
+  if (!relative.startsWith('/uploads/')) return;
+  if (relative.includes('..') || relative.includes('\0') || relative.includes('\\')) return;
+
+  try {
+    // Required lazily: this module is imported by model files at load time.
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const { default: config } = require('../config') as { default: { uploadDir: string } };
+
+    const root = path.resolve(config.uploadDir);
+    const target = path.resolve(root, `.${relative.slice('/uploads'.length)}`);
+    if (target !== root && !target.startsWith(root + path.sep)) return;
+    fs.unlink(target, () => undefined);
+  } catch {
+    /* never fail a request because cleanup failed */
+  }
+}
+
 /** Build absolute URL for outbound responses when a public API base is known. */
 export function toPublicMediaUrl(relativeOrAbsolute: string, apiBase: string): string {
   const path = toRelativeMediaPath(relativeOrAbsolute);

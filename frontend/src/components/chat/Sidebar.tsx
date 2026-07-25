@@ -818,6 +818,13 @@ export function Sidebar() {
               <SwipeableChatRow
                 key={conv.id}
                 active={active}
+                label={[
+                  conv.type === 'group' ? 'Group chat' : 'Chat',
+                  `with ${conv.displayName}`,
+                  unread > 0 ? `, ${unread} unread message${unread === 1 ? '' : 's'}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 enabled={typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches}
                 onOpen={() => {
                   setActiveConversation(conv.id);

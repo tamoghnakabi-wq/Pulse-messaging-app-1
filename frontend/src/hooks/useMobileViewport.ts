@@ -66,30 +66,43 @@ export function useMobileViewport() {
     };
 
     const onFrame = rafThrottle(setVars);
+    // Every deferred settle pass is tracked so unmount cannot leave a pending
+    // timer writing CSS variables on a torn-down tree.
+    const pending = new Set<number>();
+    const settle = (delay: number) => {
+      const id = window.setTimeout(() => {
+        pending.delete(id);
+        onFrame();
+      }, delay);
+      pending.add(id);
+    };
 
     setVars();
     const vv = window.visualViewport;
     // resize only — ignore vv.scroll (URL bar scrub) to prevent continuous reflow
     vv?.addEventListener('resize', onFrame, { passive: true });
     window.addEventListener('resize', onFrame, { passive: true });
-    window.addEventListener('orientationchange', () => {
+    // Named handler: the previous inline arrow could never be removed, so this
+    // listener outlived every unmount.
+    const onOrientationChange = () => {
       // iOS reports wrong height mid-rotation — settle after
       onFrame();
-      window.setTimeout(onFrame, 80);
-      window.setTimeout(onFrame, 280);
-    });
+      settle(80);
+      settle(280);
+    };
+    window.addEventListener('orientationchange', onOrientationChange);
 
     const onFocusIn = () => {
       onFrame();
-      window.setTimeout(onFrame, 50);
-      window.setTimeout(onFrame, 180);
-      window.setTimeout(onFrame, 350);
+      settle(50);
+      settle(180);
+      settle(350);
     };
     const onFocusOut = () => {
       // Reset keyboard inset after blur (keyboard animates closed)
-      window.setTimeout(onFrame, 50);
-      window.setTimeout(onFrame, 200);
-      window.setTimeout(onFrame, 400);
+      settle(50);
+      settle(200);
+      settle(400);
     };
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
@@ -97,8 +110,11 @@ export function useMobileViewport() {
     return () => {
       vv?.removeEventListener('resize', onFrame);
       window.removeEventListener('resize', onFrame);
+      window.removeEventListener('orientationchange', onOrientationChange);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
+      for (const id of pending) window.clearTimeout(id);
+      pending.clear();
     };
   }, []);
 }

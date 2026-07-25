@@ -49,3 +49,12 @@ export const membershipCache = new TtlCache<boolean>({ maxSize: 50_000, ttlMs: 2
 
 /** Shared contact-list cache for presence fanout */
 export const contactsCache = new TtlCache<string[]>({ maxSize: 10_000, ttlMs: 30_000 });
+
+/**
+ * `readReceipts` privacy flag per user, for the read-receipt hot path.
+ * Short TTL so toggling the setting takes effect quickly.
+ */
+export const readReceiptPrefCache = new TtlCache<boolean>({
+  maxSize: 20_000,
+  ttlMs: 30_000,
+});

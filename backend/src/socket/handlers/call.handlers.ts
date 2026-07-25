@@ -3,7 +3,7 @@ import logger from '../../utils/logger';
 import { isObjectIdString } from '../../utils/sanitize';
 import {
   listConversationParticipantIds,
-  userInConversation,
+  conversationHasUser,
   usersShareDirectConversation,
 } from '../../services/conversation/conversationAccess.service';
 import {
@@ -64,8 +64,14 @@ export function registerCallHandlers(io: Server, socket: AuthedSocket): void {
     }
     const { targetUserId: _t, ...rest } = payload;
     const room = `user:${target}`;
-    const size = io.sockets.adapter.rooms.get(room)?.size || 0;
-    logger.info(`call relay ${event}: ${userId} → ${target} (room size ${size})`);
+    // Debug, not info: this fires for every ICE candidate. At info level a
+    // single call produced dozens of lines and the room-size lookup ran on the
+    // signaling hot path for nothing. Call milestones are logged by their own
+    // handlers below.
+    if (process.env.NODE_ENV !== 'production') {
+      const size = io.sockets.adapter.rooms.get(room)?.size || 0;
+      logger.debug(`call relay ${event}: ${userId} → ${target} (room size ${size})`);
+    }
     io.to(room).emit(event, { ...rest, fromUserId: userId });
   };
 
@@ -269,7 +275,7 @@ export function registerCallHandlers(io: Server, socket: AuthedSocket): void {
     const callType = String(payload?.callType || 'audio');
     const callId = String(payload?.callId || `gcall_${Date.now()}_${userId.slice(-4)}`);
 
-    if (!conversationId || !(await userInConversation(conversationId, userId))) {
+    if (!conversationId || !(await conversationHasUser(conversationId, userId))) {
       socket.emit('call:error', { message: 'Not a member of this conversation' });
       return;
     }
@@ -643,9 +649,11 @@ export function registerCallHandlers(io: Server, socket: AuthedSocket): void {
           if (roomSize > 0) pcmOut += 1;
           else pcmDrop += 1;
           const t = Date.now();
-          if (t - lastPcmLog > 5000) {
+          if (t - lastPcmLog > 5000 && process.env.NODE_ENV !== 'production') {
             lastPcmLog = t;
-            logger.info(
+            // Per-socket media stats: useful locally, pure log volume in prod
+            // (one line per active call every 5s).
+            logger.debug(
               `call:media pcm relay ${userId.slice(-4)}→${target.slice(-4)} room=${roomSize} in=${pcmIn} out=${pcmOut} drop=${pcmDrop} b64=${outB64.length}`
             );
           }

@@ -1,13 +1,22 @@
 import { z } from 'zod';
 
+/**
+ * Ids reach `new Types.ObjectId(...)` in the controllers, which throws a raw
+ * BSON error on malformed input — a 500 for what is plainly a bad request.
+ * Reject the wrong shape at the edge instead.
+ */
+const objectId = z
+  .string()
+  .regex(/^[0-9a-fA-F]{24}$/, 'Invalid id');
+
 export const createDirectSchema = z.object({
-  userId: z.string().min(1),
+  userId: objectId,
 });
 
 export const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
-  participantIds: z.array(z.string()).min(1).max(100),
+  participantIds: z.array(objectId).min(1).max(100),
 });
 
 export const updateGroupSchema = z.object({
@@ -16,7 +25,7 @@ export const updateGroupSchema = z.object({
 });
 
 export const addParticipantsSchema = z.object({
-  userIds: z.array(z.string()).min(1).max(50),
+  userIds: z.array(objectId).min(1).max(50),
 });
 
 export const updateParticipantRoleSchema = z.object({

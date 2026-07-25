@@ -14,11 +14,38 @@ function isAppleMobileBrowser(): boolean {
   return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
 }
 
+/**
+ * One shared AudioContext for notification blips.
+ *
+ * Creating a context per notification leaked them whenever `onended` did not
+ * fire (suspended context under autoplay policy). Browsers cap concurrent
+ * AudioContexts at ~6, after which construction throws and notification sounds
+ * silently stop working for the rest of the session.
+ */
+let notifyCtx: AudioContext | null = null;
+
+function getNotifyContext(): AudioContext | null {
+  try {
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return null;
+    if (!notifyCtx || notifyCtx.state === 'closed') {
+      notifyCtx = new Ctx();
+    }
+    if (notifyCtx.state === 'suspended') {
+      void notifyCtx.resume().catch(() => undefined);
+    }
+    return notifyCtx;
+  } catch {
+    return null;
+  }
+}
+
 function playNotificationSound() {
   try {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
+    const ctx = getNotifyContext();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -28,7 +55,15 @@ function playNotificationSound() {
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
     osc.stop(ctx.currentTime + 0.3);
-    osc.onended = () => void ctx.close();
+    // Release only the nodes; the context is shared and stays open
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        gain.disconnect();
+      } catch {
+        /* */
+      }
+    };
   } catch {
     /* ignore autoplay policy */
   }
@@ -418,7 +453,7 @@ export function useSocketEvents() {
       initiatorId?: string;
       members?: { userId: string; status: 'invited' | 'joined' | 'left' | 'rejected' }[];
     }) => {
-      console.debug('[call] incoming', payload);
+      if (import.meta.env.DEV) console.debug('[call] incoming', payload);
       if (!payload?.fromUserId) {
         console.warn('[call] incomplete incoming payload', payload);
         return;
@@ -441,7 +476,7 @@ export function useSocketEvents() {
       members?: { userId: string; status: 'invited' | 'joined' | 'left' | 'rejected' }[];
       group?: boolean;
     }) => {
-      console.debug('[call] group incoming', payload);
+      if (import.meta.env.DEV) console.debug('[call] group incoming', payload);
       const from = String(payload.fromUserId || payload.initiatorId || payload.invitedBy || '');
       if (!from || !payload.callId) {
         console.warn('[call] incomplete group incoming', payload);
@@ -465,7 +500,7 @@ export function useSocketEvents() {
       fromUserId?: string;
       callId?: string;
     }) => {
-      console.debug('[call] answer / accepted', payload?.fromUserId);
+      if (import.meta.env.DEV) console.debug('[call] answer / accepted', payload?.fromUserId);
       // Always notify — socket audio relay starts on accept even without real SDP
       void useCallStore.getState().handleAnswer(payload?.sdpAnswer || { type: 'answer', sdp: '' });
     };
@@ -491,17 +526,23 @@ export function useSocketEvents() {
       useCallStore.getState().handleMedia?.(payload);
     };
 
+    /** Dismiss only this call's toast — a bare toast.dismiss() clears unrelated ones. */
+    const dismissCallToast = (callId?: string) => {
+      const id = callId || useCallStore.getState().callId;
+      if (id) toast.dismiss(`call-${id}`);
+    };
+
     // Remote hung up / rejected — do not notify them back
-    const onCallEnded = () => {
-      console.debug('[call] ended by remote');
+    const onCallEnded = (payload?: { callId?: string }) => {
+      if (import.meta.env.DEV) console.debug('[call] ended by remote');
       // 1:1 only — group uses call:group:ended / peer-left
       if (useCallStore.getState().isGroup) return;
+      dismissCallToast(payload?.callId);
       useCallStore.getState().endCall(false);
-      toast.dismiss();
     };
 
     const onCallRejected = () => {
-      console.debug('[call] rejected by remote');
+      if (import.meta.env.DEV) console.debug('[call] rejected by remote');
       if (useCallStore.getState().isGroup) {
         // One peer declined — keep the room open
         return;
@@ -549,8 +590,8 @@ export function useSocketEvents() {
     };
 
     const onGroupEnded = (payload?: { callId?: string }) => {
+      dismissCallToast(payload?.callId);
       useCallStore.getState().handleGroupEnded(payload);
-      toast.dismiss();
     };
 
     const onCallError = (payload?: { message?: string }) => {

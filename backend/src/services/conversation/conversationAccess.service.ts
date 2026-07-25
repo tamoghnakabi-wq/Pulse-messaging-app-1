@@ -59,8 +59,15 @@ export async function usersShareDirectConversation(
   return !!shared;
 }
 
-/** Whether a user is an active participant of a conversation (direct or group). */
-export async function userInConversation(
+/**
+ * Whether a user is an active participant of a conversation (direct or group).
+ *
+ * Named `conversationHasUser` (not `userInConversation`) on purpose: the cached
+ * socket helper in `socket/membership.ts` takes the same two string arguments in
+ * the *opposite* order, and identical names made a swapped-argument auth check
+ * impossible for the compiler to catch.
+ */
+export async function conversationHasUser(
   conversationId: string,
   userId: string
 ): Promise<boolean> {

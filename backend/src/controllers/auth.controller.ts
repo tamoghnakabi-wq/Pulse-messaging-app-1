@@ -26,8 +26,10 @@ const LOCK_MS = 15 * 60 * 1000;
 /** Pending 2FA challenges (password OK, awaiting TOTP) — short-lived */
 const pending2FA = new Map<
   string,
-  { userId: string; exp: number; ip: string; userAgent: string }
+  { userId: string; exp: number; ip: string; userAgent: string; attempts: number }
 >();
+/** Guesses allowed against one 2FA challenge before it is burned. */
+const MAX_2FA_ATTEMPTS = 5;
 
 function cookieOptions(maxAgeMs: number) {
   // Prefer Lax to reduce CSRF; cross-site cookie auth is not used (Bearer-only API).
@@ -192,6 +194,7 @@ export const login = asyncHandler(async (req: AuthRequest, res: Response) => {
         exp: Date.now() + 5 * 60 * 1000,
         ip,
         userAgent: ua,
+        attempts: 0,
       });
       // GC old challenges
       for (const [k, v] of pending2FA) {
@@ -274,7 +277,17 @@ export const login2FA = asyncHandler(async (req: AuthRequest, res: Response) => 
   }
   const check = await verifyUser2FA(pending.userId, String(code || ''));
   if (!check.ok) {
-    recordSecurityEvent('2fa_failed', { userId: pending.userId, ip: req.ip });
+    // Burn the challenge after a few wrong codes. Without this, one challenge
+    // could be guessed against for its whole 5-minute lifetime.
+    pending.attempts += 1;
+    if (pending.attempts >= MAX_2FA_ATTEMPTS) {
+      pending2FA.delete(String(challengeId));
+    }
+    recordSecurityEvent('2fa_failed', {
+      userId: pending.userId,
+      ip: req.ip,
+      meta: { attempts: pending.attempts },
+    });
     throw new AppError('Invalid two-factor code', 401, 'INVALID_2FA');
   }
   pending2FA.delete(String(challengeId));

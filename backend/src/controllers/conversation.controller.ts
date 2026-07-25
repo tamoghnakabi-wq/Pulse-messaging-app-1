@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { Types } from 'mongoose';
 import { AuthRequest } from '../middleware/auth';
-import { Conversation } from '../models/Conversation';
+import { Conversation, directConversationKey } from '../models/Conversation';
 import { Message } from '../models/Message';
 import { User } from '../models/User';
 import { AppError } from '../utils/AppError';
@@ -9,11 +9,14 @@ import asyncHandler from '../utils/asyncHandler';
 import { generateRandomToken } from '../utils/tokens';
 import { fileUrl } from '../middleware/upload';
 import { getIO } from '../socket';
-import { toRelativeMediaPath } from '../utils/mediaUrl';
+import { toRelativeMediaPath, deleteStoredUpload } from '../utils/mediaUrl';
 import {
   formatConversation,
   conversationPopulatePaths,
 } from '../services/conversation/conversationFormat.service';
+
+/** Participants live in the conversation document; keep it far from the 16 MB cap. */
+const MAX_GROUP_PARTICIPANTS = 256;
 
 export const listConversations = asyncHandler(async (req: AuthRequest, res: Response) => {
   const filter = String(req.query.filter || 'all');
@@ -151,14 +154,32 @@ export const createDirect = asyncHandler(async (req: AuthRequest, res: Response)
     return;
   }
 
-  const conv = await Conversation.create({
-    type: 'direct',
-    createdBy: req.userId,
-    participants: [
-      { user: req.userId, role: 'member' },
-      { user: userId, role: 'member' },
-    ],
+  // Upsert on the canonical pair key so two people tapping "message" on each
+  // other at the same moment converge on one conversation instead of creating
+  // two competing threads.
+  const key = directConversationKey(req.userId!, String(userId));
+  await Conversation.updateOne(
+    { directKey: key },
+    {
+      $setOnInsert: {
+        type: 'direct',
+        directKey: key,
+        createdBy: req.userId,
+        isActive: true,
+        participants: [
+          { user: new Types.ObjectId(req.userId), role: 'member' },
+          { user: new Types.ObjectId(String(userId)), role: 'member' },
+        ],
+      },
+    },
+    { upsert: true }
+  ).catch(async (err: { code?: number }) => {
+    // A concurrent upsert won the race; the findOne below picks up its row.
+    if (err?.code !== 11000) throw err;
   });
+
+  const conv = await Conversation.findOne({ directKey: key });
+  if (!conv) throw new AppError('Conversation not found', 404);
 
   await conv.populate(conversationPopulatePaths());
   const formatted = formatConversation(conv, req.userId!);
@@ -166,6 +187,11 @@ export const createDirect = asyncHandler(async (req: AuthRequest, res: Response)
   try {
     const io = getIO();
     io.to(`user:${userId}`).emit('conversation:new', formatted);
+    // Sockets only join conversation rooms at connect time, so both parties
+    // would otherwise miss `message:new` for this brand-new chat until they
+    // reconnected or opened it. Join their live sockets now.
+    io.in(`user:${userId}`).socketsJoin(`conversation:${conv._id}`);
+    io.in(`user:${req.userId}`).socketsJoin(`conversation:${conv._id}`);
   } catch {
     /* socket may not be ready */
   }
@@ -177,7 +203,15 @@ export const createGroup = asyncHandler(async (req: AuthRequest, res: Response) 
   const { name, description, participantIds } = req.body;
   const uniqueIds = [...new Set([req.userId!, ...participantIds])] as string[];
 
-  const users = await User.find({ _id: { $in: uniqueIds } });
+  if (uniqueIds.length > MAX_GROUP_PARTICIPANTS) {
+    throw new AppError(
+      `Groups are limited to ${MAX_GROUP_PARTICIPANTS} participants`,
+      400,
+      'GROUP_FULL'
+    );
+  }
+
+  const users = await User.find({ _id: { $in: uniqueIds } }).select('_id').lean();
   if (users.length !== uniqueIds.length) {
     throw new AppError('One or more users not found', 404);
   }
@@ -211,6 +245,9 @@ export const createGroup = asyncHandler(async (req: AuthRequest, res: Response) 
     const io = getIO();
     uniqueIds.forEach((id) => {
       if (id !== req.userId) io.to(`user:${id}`).emit('conversation:new', formatted);
+      // Same as direct chats: members online at creation time must be placed in
+      // the room now, or they receive nothing until they reconnect.
+      io.in(`user:${id}`).socketsJoin(`conversation:${conv._id}`);
     });
   } catch {
     /* */
@@ -289,8 +326,12 @@ export const uploadGroupAvatar = asyncHandler(async (req: AuthRequest, res: Resp
   }
 
   // Relative path so group avatars survive ngrok URL changes
+  const previousAvatar = conv.avatar;
   conv.avatar = toRelativeMediaPath(fileUrl(req.file.filename, req.file.mimetype));
   await conv.save();
+  if (previousAvatar && previousAvatar !== conv.avatar) {
+    deleteStoredUpload(previousAvatar);
+  }
   await conv.populate(conversationPopulatePaths());
 
   res.json({
@@ -313,20 +354,42 @@ export const addParticipants = asyncHandler(async (req: AuthRequest, res: Respon
   }
 
   const { userIds } = req.body;
-  for (const uid of userIds) {
-    if (!conv.participants.some((p) => p.user.toString() === uid)) {
-      conv.participants.push({
-        user: new Types.ObjectId(uid),
-        role: 'member',
-        joinedAt: new Date(),
-        lastReadAt: new Date(),
-        isMuted: false,
-        isPinned: false,
-        isArchived: false,
-        isFavorite: false,
-        unreadCount: 0,
-      });
-    }
+  const existingIds = new Set(conv.participants.map((p) => p.user.toString()));
+  const candidates = [...new Set((userIds as string[]).filter((id) => !existingIds.has(id)))];
+
+  // The participants array lives inside the conversation document, so an
+  // unbounded group walks toward Mongo's 16 MB document limit and makes every
+  // populate progressively more expensive.
+  if (existingIds.size + candidates.length > MAX_GROUP_PARTICIPANTS) {
+    throw new AppError(
+      `Groups are limited to ${MAX_GROUP_PARTICIPANTS} participants`,
+      400,
+      'GROUP_FULL'
+    );
+  }
+
+  // Only add real accounts — ids were never checked against the users
+  // collection, so a group could accumulate participants that do not exist.
+  const realUsers = candidates.length
+    ? await User.find({ _id: { $in: candidates } }).select('_id').lean()
+    : [];
+  const addedIds = realUsers.map((u) => String(u._id));
+  if (addedIds.length !== candidates.length) {
+    throw new AppError('One or more users not found', 404);
+  }
+
+  for (const uid of addedIds) {
+    conv.participants.push({
+      user: new Types.ObjectId(uid),
+      role: 'member',
+      joinedAt: new Date(),
+      lastReadAt: new Date(),
+      isMuted: false,
+      isPinned: false,
+      isArchived: false,
+      isFavorite: false,
+      unreadCount: 0,
+    });
   }
   await conv.save();
   await conv.populate(conversationPopulatePaths());
@@ -334,7 +397,12 @@ export const addParticipants = asyncHandler(async (req: AuthRequest, res: Respon
   const formatted = formatConversation(conv, req.userId!);
   try {
     const io = getIO();
-    userIds.forEach((id: string) => io.to(`user:${id}`).emit('conversation:new', formatted));
+    for (const id of addedIds) {
+      io.to(`user:${id}`).emit('conversation:new', formatted);
+      // Join their live sockets to the room now; otherwise a member added while
+      // online received no realtime messages until they reconnected.
+      io.in(`user:${id}`).socketsJoin(`conversation:${conv._id}`);
+    }
     io.to(`conversation:${conv._id}`).emit('conversation:updated', formatted);
   } catch {
     /* */
@@ -638,12 +706,28 @@ export const markRead = asyncHandler(async (req: AuthRequest, res: Response) => 
   if (!me) throw new AppError('Not a participant', 403);
 
   const previousReadAt = me.lastReadAt || new Date(0);
-  me.lastReadAt = new Date();
-  me.unreadCount = 0;
-  if (req.body.messageId && Types.ObjectId.isValid(String(req.body.messageId))) {
-    me.lastReadMessageId = new Types.ObjectId(req.body.messageId as string);
-  }
-  await conv.save();
+  const readAt = new Date();
+
+  // Positional update touches only this participant's subdocument. A full
+  // conv.save() rewrites the whole participants array, so a concurrent
+  // sendMessage $inc on *another* participant's unreadCount was being lost.
+  await Conversation.updateOne(
+    { _id: conv._id, 'participants.user': req.userId },
+    {
+      $set: {
+        'participants.$.lastReadAt': readAt,
+        'participants.$.unreadCount': 0,
+        ...(req.body.messageId && Types.ObjectId.isValid(String(req.body.messageId))
+          ? {
+              'participants.$.lastReadMessageId': new Types.ObjectId(
+                String(req.body.messageId)
+              ),
+            }
+          : {}),
+      },
+    }
+  );
+  me.lastReadAt = readAt;
 
   // Bounded by previousReadAt so reopening a fully-read chat is nearly free
   await Message.updateMany(

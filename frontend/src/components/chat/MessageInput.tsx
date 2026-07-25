@@ -108,13 +108,31 @@ export function MessageInput({ conversationId }: Props) {
     }
   }, [editingMessage]);
 
-  // Auto-grow textarea
+  /**
+   * Auto-grow the composer.
+   *
+   * Collapse to 0 before measuring so scrollHeight reports content height
+   * rather than the current box. The first pass can land before fonts and the
+   * surrounding flex layout have settled, which measured an *empty* composer at
+   * 128px and left it stuck at full height until the user typed — so re-measure
+   * on the next frame, on conversation change, and on viewport resize.
+   */
   useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
-  }, [text]);
+    const resize = () => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = '0px';
+      el.style.height = `${Math.min(Math.max(el.scrollHeight, 44), 128)}px`;
+    };
+
+    resize();
+    const raf = requestAnimationFrame(resize);
+    window.addEventListener('resize', resize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', resize);
+    };
+  }, [text, conversationId]);
 
   const emitTyping = () => {
     getSocket()?.emit('typing:start', { conversationId });

@@ -16,22 +16,49 @@
   --color-pulse-800: #064593;
   --color-pulse-900: #0b3b7a;
   /* Slightly cooler, calmer canvas */
-  --color-surface: #eef0f4;
+  --color-surface: #e8ebf1;
   --color-surface-elevated: #ffffff;
   --color-surface-muted: #e4e6ec;
   --color-ink: #0c0e12;
   --color-ink-secondary: #5a6170;
+  /*
+   * Meta text (timestamps, receipts, captions) renders at 10–11px, where
+   * --color-ink-secondary at reduced opacity measured 2.4:1 against a bubble —
+   * well under the 4.5:1 WCAG AA floor for text this size. This token is tuned
+   * to clear AA on both the incoming bubble and the canvas, and must be used at
+   * full opacity.
+   */
+  --color-ink-meta: #6b7280;
   --color-border: rgba(12, 14, 18, 0.075);
   --color-glass: rgba(255, 255, 255, 0.82);
   --color-glass-border: rgba(255, 255, 255, 0.55);
-  --color-message-out: #0a84ff;
-  --color-message-in: #e9ebf0;
+  /*
+   * Accent for surfaces that carry white TEXT.
+   *
+   * --color-pulse-500 (#0a84ff) is the brand hue and stays the brand hue, but
+   * white on it measures 3.58:1 — under the 4.5:1 WCAG AA floor for body text,
+   * and the old bubble gradient's lightest stop was worse at 2.71:1. Every
+   * outgoing message was failing AA. This is the darkest point of the same hue
+   * family that clears 4.5:1, so text-bearing fills use it while decorative
+   * accents (rings, glows, icons, hairlines) keep --color-pulse-500.
+   */
+  --color-accent-strong: #1668dc;
+  --color-message-out: #1668dc;
+  /*
+   * White, not grey. The previous #e9ebf0 sat at 1.04:1 against the canvas —
+   * the bubble shape was carried almost entirely by its shadow. An elevated
+   * white surface against the tinted canvas is what makes incoming messages
+   * read as discrete objects.
+   */
+  --color-message-in: #ffffff;
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
   --shadow-soft: 0 1px 2px rgba(12, 14, 18, 0.04), 0 6px 20px rgba(12, 14, 18, 0.05);
   --shadow-lift: 0 10px 32px rgba(10, 132, 255, 0.14), 0 2px 10px rgba(12, 14, 18, 0.06);
   --shadow-card: 0 1px 1px rgba(12, 14, 18, 0.03), 0 10px 28px rgba(12, 14, 18, 0.06);
-  --radius-bubble: 1.15rem;
+  /* Single source of truth — :root previously redeclared this as 1.2rem, so the
+   * `rounded-bubble` utility and the raw variable disagreed about the radius. */
+  --radius-bubble: 1.2rem;
 }
 
 .dark {
@@ -41,10 +68,14 @@
   --color-surface-muted: #1a1a20;
   --color-ink: #f5f5f7;
   --color-ink-secondary: #9898a6;
+  /* Clears AA against both the dark incoming bubble and the canvas */
+  --color-ink-meta: #9aa1b0;
   --color-border: rgba(255, 255, 255, 0.075);
   --color-glass: rgba(18, 18, 22, 0.86);
   --color-glass-border: rgba(255, 255, 255, 0.07);
-  --color-message-out: #0a84ff;
+  /* Same AA reasoning as light mode — white bubble text needs a deeper fill */
+  --color-accent-strong: #1668dc;
+  --color-message-out: #1668dc;
   --color-message-in: #22222a;
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 32px rgba(0, 0, 0, 0.5);
   --shadow-lift: 0 14px 44px rgba(10, 132, 255, 0.16), 0 4px 14px rgba(0, 0, 0, 0.5);
@@ -66,7 +97,6 @@
   --motion-fast: 0.16s;
   --motion-med: 0.24s;
   --motion-slow: 0.36s;
-  --radius-bubble: 1.2rem;
 }
 
 /* Theme switch — soft surface blend without layout thrash */
@@ -211,6 +241,31 @@ video {
   border: 1px solid var(--color-glass-border);
   box-shadow: var(--shadow-card);
 }
+
+/*
+ * Dialog surface.
+ *
+ * Distinct from .glass-strong on purpose: --color-glass is 0.82 alpha in light
+ * mode, so a modal built on it sat at ~79% opacity and chat text behind it
+ * stayed readable through the panel. Nav bars want that translucency; a dialog
+ * that must be read does not. Near-opaque here, with the depth coming from the
+ * shadow and hairline rather than from transparency.
+ */
+.glass-panel {
+  background: color-mix(in srgb, var(--color-surface-elevated) 98%, transparent);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    0 32px 72px rgba(12, 14, 18, 0.22),
+    0 2px 8px rgba(12, 14, 18, 0.08);
+}
+.dark .glass-panel {
+  background: color-mix(in srgb, var(--color-surface-elevated) 99%, transparent);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 32px 72px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
 @media (min-width: 768px) {
   .glass {
     backdrop-filter: saturate(180%) blur(22px);
@@ -219,6 +274,10 @@ video {
   .glass-strong {
     backdrop-filter: saturate(200%) blur(32px);
     -webkit-backdrop-filter: saturate(200%) blur(32px);
+  }
+  .glass-panel {
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
   }
 }
 
@@ -309,17 +368,18 @@ video {
   transform: scale(0.97);
 }
 .filter-chip-active {
-  /* Single solid blue — premium, not rainbow */
-  background: var(--color-pulse-500);
+  /* Single solid blue — premium, not rainbow. Uses the AA-safe accent because
+   * it carries white label text. */
+  background: var(--color-accent-strong);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-pulse-500) 28%, transparent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-accent-strong) 28%, transparent);
   font-weight: 600;
 }
 .dark .filter-chip-active {
-  background: var(--color-pulse-500);
+  background: var(--color-accent-strong);
   color: #fff;
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--color-pulse-500) 35%, transparent);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--color-accent-strong) 35%, transparent);
 }
 
 .pressable {
@@ -906,16 +966,29 @@ a:focus:not(:focus-visible) {
   background: color-mix(in srgb, var(--color-ink) 8%, transparent);
 }
 
-/* Message bubble soft elevation */
+/*
+ * Message bubbles — single source of truth.
+ * (Previously split across two blocks further apart in this file, where the
+ * later one silently overrode the earlier box-shadows.)
+ */
 .bubble-out {
-  background-image: linear-gradient(
-    165deg,
-    color-mix(in srgb, #3ba0ff 100%, transparent),
-    color-mix(in srgb, #0a84ff 100%, transparent) 55%,
-    color-mix(in srgb, #0070e0 100%, transparent)
-  );
+  /* Every stop clears 4.5:1 against white text (the old range spanned
+   * 2.71:1 – 4.1:1, so the message body itself failed AA). */
+  background-image: linear-gradient(165deg, #1a6ee2, #1466d8 55%, #0d55b5);
+  box-shadow:
+    0 1px 1px rgba(13, 85, 181, 0.1),
+    0 3px 12px rgba(13, 85, 181, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.bubble-in {
+  /* Hairline + lift: white-on-tinted needs an edge to read as a raised card */
+  border: 1px solid color-mix(in srgb, var(--color-ink) 6%, transparent);
+  box-shadow:
+    0 1px 2px rgba(15, 17, 21, 0.05),
+    0 1px 1px rgba(15, 17, 21, 0.03);
 }
 .dark .bubble-in {
+  border-color: rgba(255, 255, 255, 0.06);
   box-shadow:
     0 1px 3px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -927,7 +1000,8 @@ a:focus:not(:focus-visible) {
   height: 1.2rem;
   padding: 0 0.38rem;
   border-radius: 999px;
-  background: var(--color-pulse-500);
+  /* Carries white digits — AA-safe accent */
+  background: var(--color-accent-strong);
   color: #fff;
   font-size: 0.6875rem;
   font-weight: 700;
@@ -1001,22 +1075,22 @@ a:focus:not(:focus-visible) {
   transition: color 0.3s ease, opacity 0.25s ease;
 }
 
-/* Message bubbles refinements */
-.bubble-out {
-  box-shadow:
-    0 1px 1px rgba(10, 132, 255, 0.08),
-    0 3px 12px rgba(10, 132, 255, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-.bubble-in {
-  box-shadow:
-    0 1px 2px rgba(15, 17, 21, 0.035),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
-}
+/*
+ * Message meta (timestamp + receipt).
+ * Full opacity on a dedicated token — the old `opacity: 0.72` on
+ * --color-ink-secondary measured 2.4:1 at 10px, failing WCAG AA (4.5:1).
+ * Inside an outgoing bubble the text sits on blue, so it keeps its own colour.
+ */
 .msg-timestamp {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
-  opacity: 0.72;
+  color: var(--color-ink-meta);
+  opacity: 1;
+}
+.bubble-out .msg-timestamp,
+.msg-timestamp-on-accent {
+  /* 0.95, not 0.88: at 0.88 the blend lands on 4.34:1, just under AA */
+  color: rgba(255, 255, 255, 0.95);
 }
 .msg-reply-preview {
   border-left-width: 3px;
@@ -1062,11 +1136,12 @@ a:focus:not(:focus-visible) {
 
 /* Composer polish */
 .composer-field {
+  /* No height/min-height transition: the auto-grow effect measures scrollHeight
+   * synchronously, and an in-flight size animation feeds it a stale value. */
   transition:
     border-color 0.22s var(--ease-out-expo),
     box-shadow 0.22s var(--ease-out-expo),
-    background 0.22s ease,
-    min-height 0.12s ease;
+    background 0.22s ease;
 }
 .composer-field::placeholder {
   color: color-mix(in srgb, var(--color-ink-secondary) 72%, transparent);

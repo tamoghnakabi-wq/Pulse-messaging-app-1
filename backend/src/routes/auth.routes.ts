@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate';
 import {
   registerSchema,
   loginSchema,
+  login2FASchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   resetPassword2FASchema,
@@ -64,7 +65,7 @@ const refreshLimiter = rateLimit({
 
 router.post('/register', authLimiter, validate(registerSchema), authController.register);
 router.post('/login', authLimiter, validate(loginSchema), authController.login);
-router.post('/login/2fa', authLimiter, authController.login2FA);
+router.post('/login/2fa', authLimiter, validate(login2FASchema), authController.login2FA);
 router.post('/refresh', refreshLimiter, authController.refresh);
 router.post('/logout', authenticate, authController.logout);
 router.post('/logout-everywhere', authenticate, authController.logoutEverywhere);

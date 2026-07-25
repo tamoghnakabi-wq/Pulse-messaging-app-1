@@ -901,7 +901,10 @@ function MessageBubbleInner({
               isLastInGroup || message.isEdited || message.isPinned
                 ? 'text-[10px]'
                 : 'text-[9px]',
-              isMine ? 'text-white/50' : 'text-[var(--color-ink-secondary)]/60',
+              // Full-opacity semantic colours: the previous /50 and /60 alpha
+              // modifiers measured 1.9:1 (on blue) and 2.4:1 (on the incoming
+              // bubble) at 10px — both far below the 4.5:1 WCAG AA floor.
+              isMine ? 'msg-timestamp-on-accent' : 'text-[var(--color-ink-meta)]',
               // Hide time on tight middle-of-group bubbles (keep ticks/edited)
               !isLastInGroup && !message.isEdited && !message.isPinned && !isMine && 'sr-only'
             )}
@@ -943,12 +946,21 @@ function MessageBubbleInner({
         )}
       </div>
 
-      {/* Actions: always visible on touch; hover on desktop */}
+      {/*
+       * Actions: revealed on hover (desktop) or long-press / right-click, which
+       * are already wired on the row above.
+       *
+       * Previously this strip was permanently visible on touch, so every single
+       * message carried a "···" affordance — ~40px of row width each and a lot
+       * of visual noise on a phone. Long-press is the established convention in
+       * this product category, so the control is hidden until it is needed and
+       * still shown whenever a menu is actually open.
+       */}
       <div
         className={cn(
           'flex shrink-0 items-center gap-0.5 self-center transition-opacity',
-          'opacity-100 md:opacity-0 md:group-hover:opacity-100',
-          menu || showReact ? 'opacity-100 md:opacity-100' : ''
+          'pointer-events-none opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100',
+          menu || showReact ? 'pointer-events-auto opacity-100' : ''
         )}
       >
         <button

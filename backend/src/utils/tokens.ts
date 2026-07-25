@@ -12,6 +12,17 @@ export interface RefreshTokenPayload {
   userId: string;
   sessionId: string;
   type: 'refresh';
+  /**
+   * Per-issue nonce.
+   *
+   * Without it the payload is fully determined by (userId, sessionId) and JWT's
+   * second-granularity `iat`/`exp`, so two refresh tokens signed for the same
+   * session within one second are byte-identical. Rotation then silently
+   * no-ops: the stored hash never changes, the "old" token stays valid, and
+   * reuse detection can never fire. Optional so tokens issued before this
+   * change still verify.
+   */
+  jti?: string;
 }
 
 const JWT_ISS = 'pulse-api';
@@ -28,7 +39,12 @@ export function signAccessToken(userId: string, sessionId: string): string {
 }
 
 export function signRefreshToken(userId: string, sessionId: string): string {
-  const payload: RefreshTokenPayload = { userId, sessionId, type: 'refresh' };
+  const payload: RefreshTokenPayload = {
+    userId,
+    sessionId,
+    type: 'refresh',
+    jti: crypto.randomBytes(16).toString('hex'),
+  };
   return jwt.sign(payload, config.jwt.refreshSecret, {
     expiresIn: config.jwt.refreshExpires as jwt.SignOptions['expiresIn'],
     algorithm: 'HS256',

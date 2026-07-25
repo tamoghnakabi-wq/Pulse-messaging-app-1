@@ -68,7 +68,7 @@ export function Modal({
           )}
         >
           <motion.div
-            className="absolute inset-0 bg-black/50 md:bg-black/45 md:backdrop-blur-[6px]"
+            className="absolute inset-0 bg-black/55 md:bg-black/50 md:backdrop-blur-[8px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -78,7 +78,9 @@ export function Modal({
           <motion.div
             data-modal-panel
             className={cn(
-              'relative z-10 flex w-full max-h-[min(90dvh,var(--app-height,100dvh))] flex-col overflow-hidden rounded-3xl glass-strong shadow-2xl gpu-boost',
+              // glass-panel (not glass-strong): a dialog has to be readable over
+              // whatever is behind it — see the token comment in index.css.
+              'relative z-10 flex w-full max-h-[min(90dvh,var(--app-height,100dvh))] flex-col overflow-hidden rounded-3xl glass-panel gpu-boost',
               widths[size],
               // Fixed height so switching internal tabs never reflows the shell
               stableHeight &&

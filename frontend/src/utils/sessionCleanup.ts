@@ -45,6 +45,10 @@ export function clearClientSessionState(): void {
     /* */
   }
   clearSessionCaches();
+  // Decrypted attachment blobs are plaintext — they must not survive logout
+  void import('../components/chat/E2EMediaAttachment')
+    .then(({ clearDecryptedMediaCache }) => clearDecryptedMediaCache())
+    .catch(() => undefined);
   // Clear in-memory E2E session keys (per-user device identity stays for re-login)
   void import('../services/e2e')
     .then(({ clearE2ESessionCaches, setE2EUserContext }) => {

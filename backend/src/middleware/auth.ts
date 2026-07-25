@@ -33,19 +33,22 @@ export async function authenticate(
     }
 
     const payload = verifyAccessToken(token);
+    // Lean: this runs on every authenticated request and nothing here needs a
+    // hydrated document. The two invalidation paths below write with updateOne.
     const session = await Session.findOne({
       _id: payload.sessionId,
       user: payload.userId,
       isValid: true,
-    });
+    })
+      .select('_id expiresAt lastActiveAt')
+      .lean();
 
     if (!session) {
       throw new AppError('Session expired or invalid', 401, 'SESSION_INVALID');
     }
 
     if (session.expiresAt && session.expiresAt < new Date()) {
-      session.isValid = false;
-      await session.save();
+      await Session.updateOne({ _id: session._id }, { $set: { isValid: false } });
       throw new AppError('Session expired', 401, 'SESSION_EXPIRED');
     }
 
@@ -56,8 +59,7 @@ export async function authenticate(
       session.lastActiveAt &&
       Date.now() - new Date(session.lastActiveAt).getTime() > INACTIVITY_MS
     ) {
-      session.isValid = false;
-      await session.save();
+      await Session.updateOne({ _id: session._id }, { $set: { isValid: false } });
       throw new AppError('Session expired due to inactivity', 401, 'SESSION_INACTIVE');
     }
 
