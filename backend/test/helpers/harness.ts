@@ -1,6 +1,12 @@
 /**
  * Integration test harness.
  *
+ * NOTE: keep suites as `test/<name>.test.ts`, flat in this directory. The npm
+ * script globs `test/*.test.ts` so the *shell* expands it — Node only learned to
+ * expand `**` patterns itself in v22, and CI (and package.json `engines`) run
+ * Node 20, where a quoted `test/**\/*.test.ts` fails with "Could not find".
+ * Helpers live in subdirectories precisely so they are not picked up as suites.
+ *
  * Boots an ephemeral MongoDB (mongodb-memory-server) and the real Express app —
  * no mocks, no stubbed models — so tests exercise the same middleware chain,
  * validation and Mongo queries that production does.

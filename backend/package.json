@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,js,json}\""
   },
